@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "server",
+    "links/windows",
+    "links/linux",
+    "links/osx",
+]
+resolver = "2"
