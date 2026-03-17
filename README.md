@@ -170,6 +170,18 @@ rustup target add x86_64-apple-darwin
 
 ---
 
+## Known Issues / TODO
+
+- **Binary output path wrong** — `generate.rs` looks for the built binary in `links/<platform>/target/...` but the workspace places it in `./target/<triple>/release/`. Windows builds succeed but the binary is never copied.
+- **Binary name collision** — `link-windows` and `link-linux` both produce a binary named `link`. The `[[bin]] name` in each implant `Cargo.toml` should match the crate name.
+- **No prerequisite checks** — Before invoking `cargo build`, the generate commands should verify that the required `rustup target` and C toolchain (e.g. `x86_64-linux-musl-gcc`, `mingw64`, `osxcross`) are present, and print actionable install instructions if not.
+- **Verbose cargo output** — The full `Compiling ...` log is printed during generation. Should use `--quiet` by default and only show output on failure.
+- **CLI navigation confusion** — Top-level commands (e.g. `generate`, `help`) entered inside the `links>` submenu return "Unknown" with no guidance. Blank input silently exits the submenu back to main.
+- **No native Linux build** — No `generate-linux-native` command targeting `x86_64-unknown-linux-gnu` (no musl toolchain required), which would allow testing implants locally on the operator machine.
+- **Cross-compilation toolchain docs** — README lacks exact package names (`dnf`/`apt`) and osxcross setup steps.
+
+---
+
 ## Security Notice
 
 This tool is designed for use in **authorized** penetration testing engagements only. Do not use it against systems without explicit written permission from the owner.
