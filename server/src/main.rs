@@ -10,6 +10,11 @@ use std::sync::{Arc, Mutex};
 use links::Links;
 
 fn main() {
+    // rustls 0.23 requires an explicit CryptoProvider to be installed before any TLS usage.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install aws-lc-rs CryptoProvider");
+
     let args: Vec<String> = std::env::args().collect();
     let bind_addr = args
         .get(1)

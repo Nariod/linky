@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "link"
+name = "link-windows"
 path = "src/main.rs"
 
 [dependencies]

@@ -8,12 +8,12 @@ pub fn generate_windows(callback: &str) {
         callback,
         "links/windows",
         "x86_64-pc-windows-gnu",
-        "link.exe",
+        "link-windows.exe",
     );
 }
 
 pub fn generate_linux(callback: &str) {
-    build(callback, "links/linux", "x86_64-unknown-linux-musl", "link");
+    build(callback, "links/linux", "x86_64-unknown-linux-musl", "link-linux");
 }
 
 pub fn generate_osx(callback: &str) {
