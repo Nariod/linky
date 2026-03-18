@@ -189,3 +189,8 @@ This tool is designed for use in **authorized** penetration testing engagements 
 ## Disclaimer
 
 This project is provided for educational and offensive security research purposes. The authors accept no responsibility for unauthorized or illegal use.
+
+
+rustup target add x86_64-unknown-linux-musl
+sudo dnf install musl-*
+rustup target add x86_64-apple-darwin
