@@ -51,9 +51,13 @@ RUN mkdir -p /implants
 # Copy server binary
 COPY --from=builder /app/target/release/linky /usr/local/bin/
 
-# Copy implants to /usr/local/implants only if they exist (DEV_MODE builds)
-COPY --from=builder /app/target/x86_64-pc-windows-gnu/release/link-windows.exe /usr/local/implants/ 2>/dev/null || true
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/link-linux /usr/local/implants/ 2>/dev/null || true
+# Create implants directory in /usr/local for DEV_MODE builds
+RUN mkdir -p /usr/local/implants
+
+# Copy implants using a script that handles missing files gracefully
+COPY copy_implants.sh /copy_implants.sh
+RUN chmod +x /copy_implants.sh
+RUN /copy_implants.sh
 
 # Create entrypoint script to copy implants to volume
 COPY entrypoint.sh /entrypoint.sh
