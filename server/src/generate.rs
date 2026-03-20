@@ -13,7 +13,12 @@ pub fn generate_windows(callback: &str) {
 }
 
 pub fn generate_linux(callback: &str) {
-    build(callback, "links/linux", "x86_64-unknown-linux-musl", "link-linux");
+    build(
+        callback,
+        "links/linux",
+        "x86_64-unknown-linux-musl",
+        "link-linux",
+    );
 }
 
 pub fn generate_osx(callback: &str) {
@@ -21,7 +26,12 @@ pub fn generate_osx(callback: &str) {
 }
 
 pub fn generate_native(callback: &str) {
-    build(callback, "links/linux", "x86_64-unknown-linux-gnu", "link-native");
+    build(
+        callback,
+        "links/linux",
+        "x86_64-unknown-linux-gnu",
+        "link-native",
+    );
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────────

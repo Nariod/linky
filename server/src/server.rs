@@ -27,12 +27,12 @@ pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> std::io::Result
 fn build_tls_config() -> ServerConfig {
     use rcgen::{generate_simple_self_signed, CertifiedKey};
 
-    let CertifiedKey { cert, key_pair } =
+    let CertifiedKey { cert, signing_key } =
         generate_simple_self_signed(vec!["localhost".to_string()])
             .expect("rcgen: failed to generate cert");
 
     let cert_der = CertificateDer::from(cert.der().to_vec());
-    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()));
+    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(signing_key.serialize_der()));
 
     ServerConfig::builder()
         .with_no_client_auth()
