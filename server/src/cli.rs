@@ -43,6 +43,13 @@ pub fn run(links: Arc<Mutex<Links>>) {
                             generate::generate_osx(rest);
                         }
                     }
+                    "generate-native" => {
+                        if rest.is_empty() {
+                            println!("Usage: generate-native <ip:port>");
+                        } else {
+                            generate::generate_native(rest);
+                        }
+                    }
                     "help" => print_help(),
                     "exit" | "quit" | "kill" => {
                         println!("Exiting.");
@@ -265,6 +272,7 @@ fn print_help() {
     println!("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
     println!("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
     println!("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
+    println!("  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)");
     println!("  help                     Show this help");
     println!("  exit / kill              Quit linky");
 }

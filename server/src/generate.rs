@@ -20,6 +20,10 @@ pub fn generate_osx(callback: &str) {
     build(callback, "links/osx", "x86_64-apple-darwin", "link-osx");
 }
 
+pub fn generate_native(callback: &str) {
+    build(callback, "links/linux", "x86_64-unknown-linux-gnu", "link-native");
+}
+
 // ── Internal ─────────────────────────────────────────────────────────────────
 
 fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
@@ -39,12 +43,12 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
 
     let result = Command::new("cargo")
         .env("CALLBACK", callback)
-        .args(["build", "--release", "--target", target])
+        .args(["build", "--release", "--target", target, "--quiet"])
         .current_dir(dir)
         .status();
 
-    let binary = dir
-        .join("target")
+    // Fix: Look for binary in workspace target directory
+    let binary = Path::new("target")
         .join(target)
         .join("release")
         .join(output_name);
