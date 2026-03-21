@@ -104,13 +104,11 @@ pub async fn stage2_handler(
         x_request_id: link.x_request_id.to_string(),
     };
     let link_name = link.name.clone();
-    let user = body.link_username.clone();
-    let host = body.link_hostname.clone();
     drop(links);
 
     println!(
         "\n[+] New link: {} ({}@{}) [{}]",
-        link_name, user, host, body.platform
+        link_name, body.link_username, body.link_hostname, body.platform
     );
 
     HttpResponse::Ok().json(resp)
@@ -159,18 +157,14 @@ pub async fn stage3_handler(
     links.update_checkin(link_id, new_x_req_id);
 
     // Dispatch next waiting task, if any
-    let resp = if let Some(task) = links.get_next_task(link_id) {
-        TaskResponse {
-            q: task.command.clone(),
-            tasking: task.id.to_string(),
-            x_request_id: new_x_req_id.to_string(),
-        }
-    } else {
-        TaskResponse {
-            q: String::new(),
-            tasking: String::new(),
-            x_request_id: new_x_req_id.to_string(),
-        }
+    let (q, tasking) = links
+        .get_next_task(link_id)
+        .map(|t| (t.command, t.id.to_string()))
+        .unwrap_or_default();
+    let resp = TaskResponse {
+        q,
+        tasking,
+        x_request_id: new_x_req_id.to_string(),
     };
 
     HttpResponse::Ok().json(resp)

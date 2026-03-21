@@ -1,0 +1,20 @@
+# Docker ignore file for Linky
+
+# Git directory
+target/
+.git/
+
+# Cargo files
+Cargo.lock
+
+# IDE files
+.idea/
+.vscode/
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+
+# Logs
+*.log

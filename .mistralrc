@@ -1,0 +1,87 @@
+# Mistral Configuration for Linky C2 Framework
+# Rust idiomatic coding guidelines and common commands
+
+[rust]
+# Coding Standards
+idiomatic_rules = [
+    "Use snake_case for functions and variables",
+    "Use PascalCase for types and traits",
+    "Use SCREAMING_SNAKE_CASE for constants and statics",
+    "Prefer &str over String when possible",
+    "Use Result<T, E> for error handling",
+    "Prefer iterators over loops",
+    "Use match over if-let chains",
+    "Document public items with ///",
+    "Use clippy for linting",
+    "Follow Rust API Guidelines"
+]
+
+# Common Cargo Commands
+commands = {
+    "build_release" = "cargo build --release",
+    "build_linux" = "cargo build --release --target x86_64-unknown-linux-musl",
+    "build_windows" = "cargo build --release --target x86_64-pc-windows-gnu",
+    "build_macos" = "cargo build --release --target x86_64-apple-darwin",
+    "test" = "cargo test",
+    "clippy" = "cargo clippy --all-targets --all-features",
+    "fmt" = "cargo fmt --all",
+    "clean" = "cargo clean"
+}
+
+# Rust Idiomatic Patterns
+patterns = {
+    "error_handling" = """
+    // Preferred error handling pattern
+    fn parse_config(path: &str) -> Result<Config, ConfigError> {
+        let content = std::fs::read_to_string(path)?;
+        serde_json::from_str(&content)
+            .map_err(|e| ConfigError::ParseError(e.to_string()))
+    }
+    """,
+    
+    "iterator_chain" = """
+    // Preferred iterator pattern
+    let result: Vec<_> = (0..10)
+        .filter(|&x| x % 2 == 0)
+        .map(|x| x * 2)
+        .collect();
+    """,
+    
+    "option_handling" = """
+    // Preferred Option handling
+    let value = some_option.ok_or(Error::MissingValue)?;
+    // or
+    if let Some(val) = some_option {
+        // handle value
+    }
+    """
+}
+
+# Project Specific Commands
+[linky]
+generate_linux = "cargo run --release -- generate-linux"
+generate_native = "cargo run --release -- generate-native"
+generate_windows = "cargo run --release -- generate"
+generate_macos = "cargo run --release -- generate-osx"
+run_server = "cargo run --release"
+
+# Code Review Checklist
+[review]
+checklist = [
+    "Check for proper error handling with Result/Option",
+    "Verify all public items are documented",
+    "Ensure no unsafe blocks without justification",
+    "Check for proper trait implementations",
+    "Verify async/await usage is correct",
+    "Check for proper lifetime annotations",
+    "Ensure no panics in library code",
+    "Verify proper use of standard library types"
+]
+
+# Testing Guidelines
+testing = {
+    "unit_tests" = "cargo test --lib",
+    "integration_tests" = "cargo test --test *",
+    "doc_tests" = "cargo test --doc",
+    "all_tests" = "cargo test --all"
+}

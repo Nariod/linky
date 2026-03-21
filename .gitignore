@@ -5,3 +5,4 @@ links/linux/target/
 link.exe
 link
 *.bin
+*.exe
