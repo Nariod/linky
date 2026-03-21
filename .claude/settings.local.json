@@ -18,7 +18,13 @@
       "Bash(sudo dnf:*)",
       "Bash(podman build:*)",
       "Bash(podman rm:*)",
-      "Bash(timeout 4 podman run --rm --name linky-test linky-c2)"
+      "Bash(timeout 4 podman run --rm --name linky-test linky-c2)",
+      "Bash(printf 'links\\\\nback\\\\nhelp\\\\ngenerate-linux 192.168.1.10:8443\\\\nexit\\\\n')",
+      "Bash(podman run:*)",
+      "Bash(rm -f /home/fedora/Documents/linky/implants/*)",
+      "Bash(printf 'generate-linux 192.168.1.10:8443\\\\ngenerate 192.168.1.10:8443\\\\nlinks\\\\nback\\\\nexit\\\\n')",
+      "Bash(printf 'generate-linux 192.168.1.10:8443\\\\ngenerate 192.168.1.10:8443\\\\nexit\\\\n')",
+      "Bash(printf 'generate 192.168.1.10:8443\\\\ngenerate-osx 192.168.1.10:8443\\\\nexit\\\\n')"
     ]
   }
 }

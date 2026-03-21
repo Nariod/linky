@@ -1,7 +1,13 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+
+fn output_dir() -> PathBuf {
+    std::env::var("LINKY_OUTPUT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
 
 pub fn generate_windows(callback: &str) {
     build(
@@ -21,10 +27,6 @@ pub fn generate_linux(callback: &str) {
     );
 }
 
-pub fn generate_osx(callback: &str) {
-    build(callback, "links/osx", "x86_64-apple-darwin", "link-osx");
-}
-
 pub fn generate_native(callback: &str) {
     build(
         callback,
@@ -36,6 +38,53 @@ pub fn generate_native(callback: &str) {
 
 // ── Internal ─────────────────────────────────────────────────────────────────
 
+/// Verify that the rustup target is installed and the required C linker is in PATH.
+/// Returns `true` if all prerequisites are met, `false` (with diagnostics) otherwise.
+fn check_prerequisites(target: &str) -> bool {
+    // Check rustup target
+    let target_installed = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains(target))
+        .unwrap_or(false);
+
+    if !target_installed {
+        eprintln!("[-] Rust target '{}' is not installed.", target);
+        eprintln!("    Fix: rustup target add {}", target);
+        return false;
+    }
+
+    // Check the C linker/cross-toolchain
+    let (linker, debian_pkg, fedora_pkg) = match target {
+        "x86_64-pc-windows-gnu" => (
+            "x86_64-w64-mingw32-gcc",
+            "mingw-w64",
+            "mingw64-gcc",
+        ),
+        "x86_64-unknown-linux-musl" => (
+            "musl-gcc",
+            "musl-tools",
+            "musl-gcc",
+        ),
+        _ => return true, // No extra toolchain required
+    };
+
+    let linker_found = Command::new("which")
+        .arg(linker)
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    if !linker_found {
+        eprintln!("[-] Required C toolchain '{}' not found in PATH.", linker);
+        eprintln!("    Debian/Ubuntu: sudo apt-get install {}", debian_pkg);
+        eprintln!("    Fedora/RHEL:   sudo dnf install {}", fedora_pkg);
+        return false;
+    }
+
+    true
+}
+
 fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
     let dir = Path::new(crate_dir);
     if !dir.exists() {
@@ -43,6 +92,10 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
             "[-] {} not found. Run linky from the workspace root.",
             crate_dir
         );
+        return;
+    }
+
+    if !check_prerequisites(target) {
         return;
     }
 
@@ -63,15 +116,16 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         .join("release")
         .join(output_name);
 
-    handle_result(result, &binary, output_name);
+    let dest = output_dir().join(output_name);
+    handle_result(result, &binary, &dest);
 }
 
-fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &str) {
+fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
     match status {
         Ok(s) if s.success() => {
             if src.exists() {
                 match fs::copy(src, dest) {
-                    Ok(_) => println!("[+] Implant written to ./{}", dest),
+                    Ok(_) => println!("[+] Implant written to {}", dest.display()),
                     Err(e) => eprintln!("[-] Copy failed: {}", e),
                 }
             } else {

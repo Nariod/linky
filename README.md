@@ -1,16 +1,17 @@
 # Linky C2 Framework
 
-**TL;DR - Quick Setup with Podman (3 Steps)** 🐳🚀
+**TL;DR - Quick Setup with Podman (3 Steps)**
 
 ```bash
-# 1. Build the container image
+# 1. Build the container image (includes full Rust toolchain for on-the-fly generation)
 podman build -t linky-c2 .
 
 # 2. Run the server (port 8443, implants volume)
+#    Note: :Z is required on SELinux systems (Fedora, RHEL, etc.)
 #    The Linky CLI starts automatically in this terminal.
 podman run -it --rm \
   -p 8443:8443 \
-  -v ./implants:/implants \
+  -v ./implants:/implants:Z \
   --name linky-server \
   linky-c2
 
@@ -23,7 +24,7 @@ linky> generate-linux 192.168.1.10:8443
 
 💡 **No Rust installation needed!** Everything runs in containers.
 
-For full documentation (native install, development mode, etc.), continue reading below...
+For full documentation (native install, etc.), continue reading below...
 
 ---
 
@@ -173,13 +174,14 @@ Your implant is now ready in the `link-linux` file!
 If you prefer containerization:
 
 ```bash
-# Build the image (production mode - no implants)
+# Build the image (includes full Rust toolchain — allows on-the-fly implant generation)
 podman build -t linky-c2 .
 
 # Run the container — the Linky CLI starts automatically.
+# Note: :Z is required on SELinux systems (Fedora, RHEL, etc.)
 podman run -it --rm \
   -p 8443:8443 \
-  -v ./implants:/implants \
+  -v ./implants:/implants:Z \
   --name linky-server \
   linky-c2
 
@@ -244,7 +246,7 @@ link-1> inject <pid> <shellcode_base64>
 
 ## Implants
 
-### Common (Windows / Linux / macOS)
+### Common (Windows / Linux)
 
 | Feature             | Detail                                                         |
 |---------------------|----------------------------------------------------------------|
@@ -254,11 +256,11 @@ link-1> inject <pid> <shellcode_base64>
 | Poll interval       | 5 seconds                                                      |
 | Reconnection        | Infinite retry loop if the server is unreachable               |
 
-### Linux / macOS
+### Linux
 
 - Shell execution via `/bin/sh -c`
-- `hostname`: reads `/etc/hostname` (Linux) or `scutil --get ComputerName` (macOS)
-- `platform`: reads `/etc/os-release` (Linux) or `sw_vers` (macOS)
+- `hostname`: reads `/etc/hostname`
+- `platform`: reads `/etc/os-release`
 
 ### Windows
 
@@ -276,12 +278,10 @@ The server invokes `cargo build --release --target <triple>` inside each implant
 |----------|-----------------------------|------------------------|
 | Windows  | `x86_64-pc-windows-gnu`     | `mingw-w64`            |
 | Linux    | `x86_64-unknown-linux-musl` | `musl-cross`           |
-| macOS    | `x86_64-apple-darwin`       | `osxcross`             |
 
 ```bash
 rustup target add x86_64-pc-windows-gnu
 rustup target add x86_64-unknown-linux-musl
-rustup target add x86_64-apple-darwin
 ```
 
 ---
@@ -291,47 +291,42 @@ rustup target add x86_64-apple-darwin
 ### Build the image
 
 ```bash
-# Production build (no implants, smaller image)
 podman build -t linky-c2 .
-
-# Development build (includes implants for testing)
-podman build --build-arg DEV_MODE=true -t linky-c2 .
 ```
+
+The image is based on `rust:latest` and includes the full Rust toolchain and cross-compilation targets, so implants can be generated on the fly from the CLI without rebuilding the image.
 
 ### Run the container
 
 ```bash
 podman run -it --rm \
   -p 8443:8443 \
-  -v ./implants:/implants \
+  -v ./implants:/implants:Z \
   --name linky-server \
   linky-c2
 ```
 
+> **Note — SELinux (Fedora, RHEL, etc.):** The `:Z` flag on the volume mount is required on SELinux-enabled systems so that the container can write generated implants to the host directory. Omitting it will cause a `Permission denied` error when running `generate` commands.
+
 ### Usage
 
-The server starts automatically on port 8443 with a self-signed certificate.
+The server starts automatically on port 8443 with a self-signed certificate. Generated implants are written to `/implants` inside the container, which maps to `./implants` on the host.
 
-#### Generate implants
-
-**Production mode:** Implants are NOT pre-built in the container. You need to generate them using the CLI or mount your own implants to `/implants`.
-
-**Development mode:** If you built with `DEV_MODE=true`, implants are available in the `/implants` directory (mounted to `./implants` on host).
-
-Available implants (DEV_MODE only):
-- `link-windows.exe` - Windows implant
-- `link-linux` - Linux implant
-
-To generate implants in production mode, the CLI is accessible directly from
-the interactive terminal opened by `podman run -it`. To re-attach to a running
-container started in a separate session:
 ```bash
-# Re-attach to the CLI of a running container
-podman attach linky-server
-
-# Then use the generate commands
-linky> generate 192.168.1.10:8443
+# Generate implants from the interactive CLI
 linky> generate-linux 192.168.1.10:8443
+[*] Building link-linux implant (x86_64-unknown-linux-musl) for 192.168.1.10:8443 …
+[+] Implant written to /implants/link-linux
+
+linky> generate 192.168.1.10:8443
+[*] Building link-windows.exe implant (x86_64-pc-windows-gnu) for 192.168.1.10:8443 …
+[+] Implant written to /implants/link-windows.exe
+```
+
+To re-attach to a running container started in a separate session:
+
+```bash
+podman attach linky-server
 ```
 
 ### Development
@@ -347,7 +342,7 @@ podman build --no-cache -t linky-c2 .
 ```bash
 podman run -it --rm \
   -p 8443:8443 \
-  -v ./implants:/implants \
+  -v ./implants:/implants:Z \
   --entrypoint /bin/bash \
   linky-c2
 ```
@@ -356,18 +351,9 @@ podman run -it --rm \
 
 - Uses port 8443 to avoid privileged port requirements
 - Self-signed TLS certificate is generated automatically
-- **Production mode**: No implants included (smaller image, generate via CLI)
-- **Development mode**: Implants included when built with `DEV_MODE=true`
-- macOS support requires additional osxcross setup (not included)
-- To generate implants in production: use the CLI `generate` commands or mount your own implants to `/implants`
+- The `LINKY_OUTPUT_DIR` environment variable controls where generated implants are written (default: `/implants` in container, `.` when running natively)
 
 ---
-
-## Known Issues / TODO
-
-- **No prerequisite checks** — Before invoking `cargo build`, the generate commands should verify that the required `rustup target` and C toolchain (e.g. `x86_64-linux-musl-gcc`, `mingw64`, `osxcross`) are present, and print actionable install instructions if not.
-- **CLI navigation confusion** — Top-level commands (e.g. `generate`, `help`) entered inside the `links>` submenu return "Unknown" with no guidance.
-- **osxcross setup** — macOS cross-compilation requires osxcross; setup steps are not documented.
 
 ---
 
