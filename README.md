@@ -1,5 +1,10 @@
 # Linky C2 Framework
 
+> ⚠️ **SECURITY WARNING**
+> This project was generated with assistance from Claude and Mistral AI.
+> **Always review and audit the code before use in production or security-sensitive environments.**
+> The authors accept no responsibility for unauthorized or illegal use.
+
 **TL;DR - Quick Setup with Podman (3 Steps)**
 
 ```bash
