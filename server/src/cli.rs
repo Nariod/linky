@@ -81,7 +81,10 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
 
                 match cmd {
                     "-h" | "help" => {
-                        println!("  {}          Show all links (including inactive)", "-a".yellow());
+                        println!(
+                            "  {}          Show all links (including inactive)",
+                            "-a".yellow()
+                        );
                         println!("  {}   Interact with a link", "-i <name>".yellow());
                         println!("  {}   Send kill task + mark exited", "-k <name>".yellow());
                         println!("  {}        Return to main menu", "back".yellow());
@@ -109,7 +112,8 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                         }
                     }
                     "back" | "exit" | "q" => break,
-                    "generate" | "generate-linux" | "generate-native" | "links" | "kill" | "quit" => {
+                    "generate" | "generate-linux" | "generate-native" | "links" | "kill"
+                    | "quit" => {
                         println!(
                             "'{}' is a top-level command. Type 'back' to return to the main menu first.",
                             cmd

@@ -187,7 +187,9 @@ mod tests {
     fn get_link_by_name() {
         let mut links = make_links();
         add_test_link(&mut links, "linux");
-        let link = links.get_link_by_name("link-1").expect("should find by name");
+        let link = links
+            .get_link_by_name("link-1")
+            .expect("should find by name");
         assert_eq!(link.platform, "linux");
     }
 
@@ -202,7 +204,9 @@ mod tests {
         let mut links = make_links();
         let id = add_test_link(&mut links, "linux");
         let x_req_id = links.get_link(id).unwrap().x_request_id;
-        let found = links.find_by_request_id(x_req_id).expect("should find by request id");
+        let found = links
+            .find_by_request_id(x_req_id)
+            .expect("should find by request id");
         assert_eq!(found.id, id);
     }
 
@@ -243,7 +247,9 @@ mod tests {
     fn complete_task_stores_output() {
         let mut links = make_links();
         let id = add_test_link(&mut links, "linux");
-        let task_id = links.add_task(id, "whoami".into(), "whoami".into()).unwrap();
+        let task_id = links
+            .add_task(id, "whoami".into(), "whoami".into())
+            .unwrap();
         // Fetch to move it to InProgress
         links.get_next_task(id);
         links.complete_task(id, task_id, "root".into());
