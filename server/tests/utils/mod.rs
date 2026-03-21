@@ -8,7 +8,7 @@ pub fn generate_implant_id() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    format!("implant-{}-{}", timestamp, rand::random::<u32>())
+    format!("implant-{}-{}", timestamp, uuid::Uuid::new_v4().simple())
 }
 
 pub fn base64_encode(data: &[u8]) -> String {

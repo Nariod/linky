@@ -7,6 +7,7 @@
 podman build -t linky-c2 .
 
 # 2. Run the server (port 8443, implants volume)
+#    The Linky CLI starts automatically in this terminal.
 podman run -it --rm \
   -p 8443:8443 \
   -v ./implants:/implants \
@@ -14,7 +15,7 @@ podman run -it --rm \
   linky-c2
 
 # 3. Generate a Linux implant (replace IP with your server)
-podman exec -it linky-server /usr/local/bin/linky 0.0.0.0:8443
+#    You are already at the Linky CLI prompt after step 2.
 linky> generate-linux 192.168.1.10:8443
 ```
 
@@ -175,15 +176,14 @@ If you prefer containerization:
 # Build the image (production mode - no implants)
 podman build -t linky-c2 .
 
-# Run the container
+# Run the container — the Linky CLI starts automatically.
 podman run -it --rm \
   -p 8443:8443 \
   -v ./implants:/implants \
   --name linky-server \
   linky-c2
 
-# Generate implants inside the container
-podman exec -it linky-server /usr/local/bin/linky 0.0.0.0:8443
+# Generate implants from the CLI prompt (already open after the command above)
 linky> generate-linux 192.168.1.10:8443
 ```
 
@@ -248,7 +248,7 @@ link-1> inject <pid> <shellcode_base64>
 
 | Feature             | Detail                                                         |
 |---------------------|----------------------------------------------------------------|
-| Transport           | HTTPS + JSON (reqwest 0.12 blocking, rustls-tls)               |
+| Transport           | HTTPS + JSON (reqwest 0.13 blocking, rustls-tls)               |
 | TLS                 | Self-signed certs accepted (`danger_accept_invalid_certs`)     |
 | Callback address    | Statically compiled via `build.rs`                             |
 | Poll interval       | 5 seconds                                                      |
@@ -322,21 +322,16 @@ Available implants (DEV_MODE only):
 - `link-windows.exe` - Windows implant
 - `link-linux` - Linux implant
 
-To generate implants in production mode:
+To generate implants in production mode, the CLI is accessible directly from
+the interactive terminal opened by `podman run -it`. To re-attach to a running
+container started in a separate session:
 ```bash
-# Connect to running container
-podman exec -it linky-server /usr/local/bin/linky 0.0.0.0:8443
+# Re-attach to the CLI of a running container
+podman attach linky-server
 
-# Use the generate commands
+# Then use the generate commands
 linky> generate 192.168.1.10:8443
 linky> generate-linux 192.168.1.10:8443
-```
-
-#### Connect to the server
-
-```bash
-# From another terminal
-podman exec -it linky-server /usr/local/bin/linky 0.0.0.0:8443
 ```
 
 ### Development
@@ -370,13 +365,9 @@ podman run -it --rm \
 
 ## Known Issues / TODO
 
-- **Binary output path wrong** — `generate.rs` looks for the built binary in `links/<platform>/target/...` but the workspace places it in `./target/<triple>/release/`. Windows builds succeed but the binary is never copied.
-- **Binary name collision** — `link-windows` and `link-linux` both produce a binary named `link`. The `[[bin]] name` in each implant `Cargo.toml` should match the crate name.
 - **No prerequisite checks** — Before invoking `cargo build`, the generate commands should verify that the required `rustup target` and C toolchain (e.g. `x86_64-linux-musl-gcc`, `mingw64`, `osxcross`) are present, and print actionable install instructions if not.
-- **Verbose cargo output** — The full `Compiling ...` log is printed during generation. Should use `--quiet` by default and only show output on failure.
-- **CLI navigation confusion** — Top-level commands (e.g. `generate`, `help`) entered inside the `links>` submenu return "Unknown" with no guidance. Blank input silently exits the submenu back to main.
-- **No native Linux build** — No `generate-linux-native` command targeting `x86_64-unknown-linux-gnu` (no musl toolchain required), which would allow testing implants locally on the operator machine.
-- **Cross-compilation toolchain docs** — README lacks exact package names (`dnf`/`apt`) and osxcross setup steps.
+- **CLI navigation confusion** — Top-level commands (e.g. `generate`, `help`) entered inside the `links>` submenu return "Unknown" with no guidance.
+- **osxcross setup** — macOS cross-compilation requires osxcross; setup steps are not documented.
 
 ---
 

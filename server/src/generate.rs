@@ -30,7 +30,7 @@ pub fn generate_native(callback: &str) {
         callback,
         "links/linux",
         "x86_64-unknown-linux-gnu",
-        "link-native",
+        "link-linux",
     );
 }
 
