@@ -1,4 +1,5 @@
 // Utilities Module
+#![allow(dead_code)]
 
 use base64::{engine::general_purpose, Engine as _};
 use std::time::{SystemTime, UNIX_EPOCH};

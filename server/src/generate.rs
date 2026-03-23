@@ -32,7 +32,7 @@ pub fn generate_native(callback: &str) {
         callback,
         "links/linux",
         "x86_64-unknown-linux-gnu",
-        "link-linux",
+        "link-linux-native",
     );
 }
 
@@ -56,16 +56,8 @@ fn check_prerequisites(target: &str) -> bool {
 
     // Check the C linker/cross-toolchain
     let (linker, debian_pkg, fedora_pkg) = match target {
-        "x86_64-pc-windows-gnu" => (
-            "x86_64-w64-mingw32-gcc",
-            "mingw-w64",
-            "mingw64-gcc",
-        ),
-        "x86_64-unknown-linux-musl" => (
-            "musl-gcc",
-            "musl-tools",
-            "musl-gcc",
-        ),
+        "x86_64-pc-windows-gnu" => ("x86_64-w64-mingw32-gcc", "mingw-w64", "mingw64-gcc"),
+        "x86_64-unknown-linux-musl" => ("musl-gcc", "musl-tools", "musl-gcc"),
         _ => return true, // No extra toolchain required
     };
 

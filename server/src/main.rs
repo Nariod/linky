@@ -15,10 +15,8 @@ fn main() {
         .install_default()
         .expect("Failed to install aws-lc-rs CryptoProvider");
 
-    let args: Vec<String> = std::env::args().collect();
-    let bind_addr = args
-        .get(1)
-        .cloned()
+    let bind_addr = std::env::args()
+        .nth(1)
         .unwrap_or_else(|| "0.0.0.0:443".to_string());
 
     println!("╔══════════════════════════════╗");
@@ -30,11 +28,10 @@ fn main() {
 
     // Start HTTPS C2 server in its own OS thread (actix uses Rc internally → not Send)
     let links_srv = links.clone();
-    let addr = bind_addr.clone();
     std::thread::spawn(move || {
         let sys = actix_web::rt::System::new();
         sys.block_on(async move {
-            if let Err(e) = server::start(links_srv, &addr).await {
+            if let Err(e) = server::start(links_srv, &bind_addr).await {
                 eprintln!("[-] Server error: {}", e);
                 std::process::exit(1);
             }
