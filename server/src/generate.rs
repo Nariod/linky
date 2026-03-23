@@ -36,6 +36,15 @@ pub fn generate_native(callback: &str) {
     );
 }
 
+pub fn generate_osx(callback: &str) {
+    build(
+        callback,
+        "links/osx",
+        "x86_64-apple-darwin",
+        "link-osx",
+    );
+}
+
 // ── Internal ─────────────────────────────────────────────────────────────────
 
 /// Verify that the rustup target is installed and the required C linker is in PATH.
@@ -49,8 +58,8 @@ fn check_prerequisites(target: &str) -> bool {
         .unwrap_or(false);
 
     if !target_installed {
-        eprintln!("[-] Rust target '{}' is not installed.", target);
-        eprintln!("    Fix: rustup target add {}", target);
+        tracing::error!("Rust target '{}' is not installed.", target);
+        tracing::error!("Fix: rustup target add {}", target);
         return false;
     }
 
@@ -68,9 +77,9 @@ fn check_prerequisites(target: &str) -> bool {
         .unwrap_or(false);
 
     if !linker_found {
-        eprintln!("[-] Required C toolchain '{}' not found in PATH.", linker);
-        eprintln!("    Debian/Ubuntu: sudo apt-get install {}", debian_pkg);
-        eprintln!("    Fedora/RHEL:   sudo dnf install {}", fedora_pkg);
+        tracing::error!("Required C toolchain '{}' not found in PATH.", linker);
+        tracing::error!("Debian/Ubuntu: sudo apt-get install {}", debian_pkg);
+        tracing::error!("Fedora/RHEL:   sudo dnf install {}", fedora_pkg);
         return false;
     }
 
@@ -80,8 +89,8 @@ fn check_prerequisites(target: &str) -> bool {
 fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
     let dir = Path::new(crate_dir);
     if !dir.exists() {
-        eprintln!(
-            "[-] {} not found. Run linky from the workspace root.",
+        tracing::error!(
+            "{} not found. Run linky from the workspace root.",
             crate_dir
         );
         return;
@@ -91,8 +100,8 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         return;
     }
 
-    println!(
-        "[*] Building {} implant ({}) for {} …",
+    tracing::info!(
+        "Building {} implant ({}) for {} …",
         output_name, target, callback
     );
 
@@ -117,17 +126,17 @@ fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
         Ok(s) if s.success() => {
             if src.exists() {
                 match fs::copy(src, dest) {
-                    Ok(_) => println!("[+] Implant written to {}", dest.display()),
-                    Err(e) => eprintln!("[-] Copy failed: {}", e),
+                    Ok(_) => tracing::info!("Implant written to {}", dest.display()),
+                    Err(e) => tracing::error!("Copy failed: {}", e),
                 }
             } else {
-                eprintln!(
-                    "[-] Build succeeded but binary not found at {}",
+                tracing::error!(
+                    "Build succeeded but binary not found at {}",
                     src.display()
                 );
             }
         }
-        Ok(s) => eprintln!("[-] Build failed (exit {})", s),
-        Err(e) => eprintln!("[-] Failed to invoke cargo: {}", e),
+        Ok(s) => tracing::error!("Build failed (exit {})", s),
+        Err(e) => tracing::error!("Failed to invoke cargo: {}", e),
     }
 }

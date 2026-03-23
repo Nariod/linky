@@ -4,9 +4,6 @@
 target/
 .git/
 
-# Cargo files
-Cargo.lock
-
 # IDE files
 .idea/
 .vscode/

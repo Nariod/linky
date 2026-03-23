@@ -105,8 +105,8 @@ pub async fn stage2_handler(
     let link_name = link.name.clone();
     drop(links);
 
-    println!(
-        "\n[+] New link: {} ({}@{}) [{}]",
+    tracing::info!(
+        "New link: {} ({}@{}) [{}]",
         link_name, body.link_username, body.link_hostname, body.platform
     );
 
@@ -159,9 +159,9 @@ pub async fn stage3_handler(
                 let now = chrono::Local::now().format("%H:%M:%S");
                 let header_text = format!("═ {} · {} · {} ", link_name, cli_cmd, now);
                 let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
-                println!("\n{}", format!("╔{}{}╗", header_text, "═".repeat(pad)).cyan().bold());
-                println!("{}", body.q);
-                println!("{}\n", format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold());
+                tracing::info!("\n{}", format!("╔{}{}╗", header_text, "═".repeat(pad)).cyan().bold());
+                tracing::info!("{}", body.q);
+                tracing::info!("{}\n", format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold());
             }
             links.complete_task(link_id, task_id, body.q.clone());
         }

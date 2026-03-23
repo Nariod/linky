@@ -10,6 +10,11 @@ use std::sync::{Arc, Mutex};
 use links::Links;
 
 fn main() {
+    // Initialize tracing subscriber
+    tracing_subscriber::fmt()
+        .with_env_filter("linky=info,actix_web=info,actix_server=info")
+        .init();
+
     // rustls 0.23 requires an explicit CryptoProvider to be installed before any TLS usage.
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -19,10 +24,10 @@ fn main() {
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:443".to_string());
 
-    println!("╔══════════════════════════════╗");
-    println!("║       Linky C2 Framework     ║");
-    println!("╚══════════════════════════════╝");
-    println!("[*] Starting HTTPS listener on {}\n", bind_addr);
+    tracing::info!("╔══════════════════════════════╗");
+    tracing::info!("║       Linky C2 Framework     ║");
+    tracing::info!("╚══════════════════════════════╝");
+    tracing::info!("Starting HTTPS listener on {}", bind_addr);
 
     let links = Arc::new(Mutex::new(Links::default()));
 
@@ -32,7 +37,7 @@ fn main() {
         let sys = actix_web::rt::System::new();
         sys.block_on(async move {
             if let Err(e) = server::start(links_srv, &bind_addr).await {
-                eprintln!("[-] Server error: {}", e);
+                tracing::error!("Server error: {}", e);
                 std::process::exit(1);
             }
         });
