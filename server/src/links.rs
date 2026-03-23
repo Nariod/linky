@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn get_link_by_name_not_found() {
-        let mut links = make_links();
+        let links = make_links();
         assert!(links.get_link_by_name("nonexistent").is_none());
     }
 
