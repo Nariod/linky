@@ -27,7 +27,7 @@ fn main() {
     ui::print_bold("╔══════════════════════════════╗");
     ui::print_bold("║       Linky C2 Framework     ║");
     ui::print_bold("╚══════════════════════════════╝");
-    tracing::info!("Starting HTTPS listener on {}", bind_addr);
+    ui::print_bold(&format!("Server listening on: {}", bind_addr));
 
     let links = Arc::new(Mutex::new(Links::default()));
 

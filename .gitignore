@@ -8,3 +8,4 @@ link
 *.exe
 Cargo.lock
 /implants/*
+/test_implants/*
