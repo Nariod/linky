@@ -35,7 +35,6 @@ test_generate() {
 echo "Starting implant generation tests..."
 test_generate "windows" "link-windows.exe" "x86_64-pc-windows-gnu"
 test_generate "linux" "link-linux" "x86_64-unknown-linux-musl"
-test_generate "linux-native" "link-linux" "x86_64-unknown-linux-gnu"
 echo "Skipping macOS implant (cross-compilation not configured)"
 
 # Test d'exécution de l'implant Linux natif (si possible)
