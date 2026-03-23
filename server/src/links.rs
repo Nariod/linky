@@ -109,10 +109,9 @@ impl Links {
         command: String,
         cli_command: String,
     ) -> Option<Uuid> {
-        let link = self.links.iter_mut().find(|l| l.id == link_id)?;
         let task = Task::new(command, cli_command);
         let id = task.id;
-        link.tasks.push_back(task);
+        self.links.iter_mut().find(|l| l.id == link_id)?.tasks.push_back(task);
         Some(id)
     }
 
