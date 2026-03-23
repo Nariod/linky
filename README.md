@@ -204,6 +204,7 @@ linky> help
   links                    Manage active links
   generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)
   generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)
+  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)
   generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)
   help                     Show this help
   exit / kill              Quit linky
@@ -215,6 +216,10 @@ linky> help
 linky> generate-linux 192.168.1.10:443
 [*] Building link-linux (x86_64-unknown-linux-musl) for 192.168.1.10:443 …
 [+] Implant written to ./link-linux
+
+linky> generate-native 192.168.1.10:443
+[*] Building link-linux-native (x86_64-unknown-linux-gnu) for 192.168.1.10:443 …
+[+] Implant written to ./link-linux-native
 ```
 
 The callback address is baked into the binary at compile time via `build.rs` (`cargo:rustc-env=CALLBACK=…`).
@@ -361,6 +366,23 @@ podman run -it --rm \
 ---
 
 ---
+
+## Recent Improvements
+
+### UI/UX Enhancements
+- **Cleaner Output**: Separated UI messages from logs for better readability
+- **ANSI Color Handling**: Automatic detection of non-interactive terminals to disable color codes
+- **Improved Error Messages**: More descriptive error messages for build failures
+
+### Build System Fixes
+- **Native Linux Build**: Fixed `generate-native` command to correctly find and output the native Linux binary
+- **Cross-compilation Paths**: Improved binary location detection for different build targets
+- **macOS Build Guidance**: Enhanced error messages with clear instructions for macOS cross-compilation setup
+
+### Code Quality
+- **New UI Module**: Created dedicated `ui.rs` module for clean separation of UI and logging
+- **Better Error Handling**: Improved error detection and reporting in build processes
+- **Terminal Detection**: Added `atty` dependency for smart terminal detection
 
 ## Security Notice
 

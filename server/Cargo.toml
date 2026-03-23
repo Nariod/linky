@@ -24,6 +24,7 @@ tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 thiserror   = "1.0"
 anyhow      = "1.0"
+atty        = "0.2"
 
 [dev-dependencies]
 criterion = "0.8"
