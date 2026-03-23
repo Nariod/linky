@@ -647,8 +647,6 @@ Phase 2 — C2 fonctionnel (~3 semaines)
   2.1-2.2  File upload/download
   2.3-2.5  Info enrichie, ps, netstat
   1.6-1.8  Sleep configurable, kill date, config chiffrée
-  3.1      Malleable profiles
-  6.1-6.2  BDD persistante + logging
   7.1-7.2  Factorisation implants + optimisation taille
 
 Phase 3 — Post-exploitation (~4 semaines)
