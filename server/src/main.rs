@@ -11,16 +11,9 @@ use std::sync::{Arc, Mutex};
 use links::Links;
 
 fn main() {
-    // Initialize tracing subscriber
-    let subscriber =
-        tracing_subscriber::fmt().with_env_filter("linky=info,actix_web=info,actix_server=info");
-
-    // Disable ANSI colors if not running in an interactive terminal
-    if !atty::is(atty::Stream::Stdout) {
-        subscriber.with_ansi(false).init();
-    } else {
-        subscriber.init();
-    }
+    // Initialize tracing subscriber with minimal output
+    let subscriber = tracing_subscriber::fmt().with_env_filter("off");
+    subscriber.init();
 
     // rustls 0.23 requires an explicit CryptoProvider to be installed before any TLS usage.
     rustls::crypto::aws_lc_rs::default_provider()

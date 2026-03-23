@@ -120,8 +120,7 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                         }
                     }
                     "back" | "exit" | "q" => break,
-                    "generate" | "generate-linux" | "links" | "kill"
-                    | "quit" => {
+                    "generate" | "generate-linux" | "links" | "kill" | "quit" => {
                         ui::print(&format!(
                             "'{}' is a top-level command. Type 'back' to return to the main menu first.",
                             cmd
