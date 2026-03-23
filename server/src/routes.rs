@@ -139,6 +139,12 @@ pub async fn stage2_handler(
         body.platform
     );
 
+    // Print notification to console
+    crate::ui::print_cyan_bold(&format!(
+        "[+] New link arrived: {} ({}@{}) [{}]",
+        link_name, body.link_username, body.link_hostname, body.platform
+    ));
+
     HttpResponse::Ok().json(resp)
 }
 
@@ -207,6 +213,11 @@ pub async fn stage3_handler(
                     let now = chrono::Local::now().format("%H:%M:%S");
                     let header_text = format!("═ {} · {} · {} ", link_name, cli_cmd, now);
                     let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+                    // Print to console UI
+                    crate::ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
+                    crate::ui::print(&format!("║ {}", body.q));
+                    crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+
                     tracing::info!(
                         "\n{}",
                         format!("╔{}{}╗", header_text, "═".repeat(pad))

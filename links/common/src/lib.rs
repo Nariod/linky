@@ -93,7 +93,7 @@ pub fn encrypt_config(data: &str, key: &[u8; 32]) -> String {
 
     // Combine nonce and ciphertext
     let mut result = Vec::with_capacity(nonce.len() + ciphertext.len());
-    result.extend_from_slice(&nonce);
+    result.extend_from_slice(nonce);
     result.extend_from_slice(&ciphertext);
 
     // Return as hex string

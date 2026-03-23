@@ -610,11 +610,11 @@ fn handle_sleep_command(args: &str) -> String {
     // Parse arguments
     let parts: Vec<&str> = args.split_whitespace().collect();
 
-    if parts.len() >= 1 {
+    if !parts.is_empty() {
         if let Ok(new_sleep) = parts[0].parse::<u64>() {
             set_sleep_seconds(new_sleep);
 
-            if parts.len() >= 2 {
+            if parts.len() > 1 {
                 if let Ok(new_jitter) = parts[1].parse::<u32>() {
                     set_jitter_percent(new_jitter);
                     return format!(
@@ -637,7 +637,7 @@ fn handle_killdate_command(args: &str) -> String {
         match get_kill_date() {
             Some(timestamp) => {
                 // Convert timestamp to readable date
-                if let Some(date_time) = chrono::NaiveDateTime::from_timestamp_opt(timestamp, 0) {
+                if let Some(date_time) = chrono::DateTime::from_timestamp(timestamp, 0) {
                     format!(
                         "Current kill date: {}",
                         date_time.format("%Y-%m-%d %H:%M:%S")
@@ -655,7 +655,7 @@ fn handle_killdate_command(args: &str) -> String {
         // Parse date in format YYYY-MM-DD or timestamp
         if let Ok(timestamp) = args.parse::<i64>() {
             set_kill_date(Some(timestamp));
-            if let Some(date_time) = chrono::NaiveDateTime::from_timestamp_opt(timestamp, 0) {
+            if let Some(date_time) = chrono::DateTime::from_timestamp(timestamp, 0) {
                 format!(
                     "[+] Kill date set to: {}",
                     date_time.format("%Y-%m-%d %H:%M:%S")
