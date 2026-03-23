@@ -38,13 +38,7 @@ pub fn run(links: Arc<Mutex<Links>>) {
                             generate::generate_linux(rest);
                         }
                     }
-                    "generate-native" => {
-                        if rest.is_empty() {
-                            ui::print("Usage: generate-native <ip:port>");
-                        } else {
-                            generate::generate_native(rest);
-                        }
-                    }
+
                     "generate-osx" => {
                         if rest.is_empty() {
                             ui::print("Usage: generate-osx <ip:port>");
@@ -126,7 +120,7 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                         }
                     }
                     "back" | "exit" | "q" => break,
-                    "generate" | "generate-linux" | "generate-native" | "links" | "kill"
+                    "generate" | "generate-linux" | "links" | "kill"
                     | "quit" => {
                         ui::print(&format!(
                             "'{}' is a top-level command. Type 'back' to return to the main menu first.",
@@ -349,7 +343,6 @@ fn print_help() {
     ui::print("  links                    Manage active links");
     ui::print("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
     ui::print("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    ui::print("  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)");
     ui::print("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
     ui::print("  help                     Show this help");
     ui::print("  exit / kill              Quit linky");

@@ -27,14 +27,7 @@ pub fn generate_linux(callback: &str) {
     );
 }
 
-pub fn generate_native(callback: &str) {
-    build(
-        callback,
-        "links/linux",
-        "x86_64-unknown-linux-gnu",
-        "link-linux-native",
-    );
-}
+
 
 pub fn generate_osx(callback: &str) {
     build(callback, "links/osx", "x86_64-apple-darwin", "link-osx");
