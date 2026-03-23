@@ -61,7 +61,9 @@ fn check_prerequisites(target: &str) -> bool {
             tracing::error!("1. Install the macOS target: rustup target add x86_64-apple-darwin");
             tracing::error!("2. Install cross-compilation tools: apt-get install clang llvm lld");
             tracing::error!("3. Set up macOS SDK and environment variables");
-            tracing::error!("4. Configure cross-compilation with: TARGET_CC=x86_64-apple-darwin20-clang");
+            tracing::error!(
+                "4. Configure cross-compilation with: TARGET_CC=x86_64-apple-darwin20-clang"
+            );
             tracing::error!("This is complex and may not work in all Docker/Podman environments.");
             tracing::error!("Consider building macOS implants on a macOS host instead.");
         }
@@ -125,7 +127,10 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         (Path::new("target").join("release"), "link-linux")
     } else {
         // For cross-compiled targets, look in the target-specific directory
-        (Path::new("target").join(target).join("release"), output_name)
+        (
+            Path::new("target").join(target).join("release"),
+            output_name,
+        )
     };
 
     let binary = binary_path.join(actual_binary_name);

@@ -89,9 +89,18 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
 
                 match cmd {
                     "-h" | "help" => {
-                        ui::print(&format!("  {}          Show all links (including inactive)", "-a".yellow()));
-                        ui::print(&format!("  {}   Interact with a link", "-i <name>".yellow()));
-                        ui::print(&format!("  {}   Send kill task + mark exited", "-k <name>".yellow()));
+                        ui::print(&format!(
+                            "  {}          Show all links (including inactive)",
+                            "-a".yellow()
+                        ));
+                        ui::print(&format!(
+                            "  {}   Interact with a link",
+                            "-i <name>".yellow()
+                        ));
+                        ui::print(&format!(
+                            "  {}   Send kill task + mark exited",
+                            "-k <name>".yellow()
+                        ));
                         ui::print(&format!("  {}        Return to main menu", "back".yellow()));
                     }
                     "-a" => print_links_table(links),
@@ -253,7 +262,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     // ── Process injection ───────────────────────────────
                     "inject" => {
                         if !is_windows(links, link_id) {
-                            ui::print(&format!("{} 'inject' is a Windows-only command.", "[-]".red()));
+                            ui::print(&format!(
+                                "{} 'inject' is a Windows-only command.",
+                                "[-]".red()
+                            ));
                         } else {
                             queue(links, link_id, line.clone(), line.clone());
                         }
@@ -274,7 +286,10 @@ fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
     if let Some(link) = l.get_link(link_id) {
         ui::print(&format!("  Name      : {}", link.name));
         ui::print(&format!("  ID        : {}", link.id));
-        ui::print(&format!("  User      : {}@{}", link.username, link.hostname));
+        ui::print(&format!(
+            "  User      : {}@{}",
+            link.username, link.hostname
+        ));
         ui::print(&format!("  Internal  : {}", link.internal_ip));
         ui::print(&format!("  Platform  : {}", link.platform));
         ui::print(&format!("  PID       : {}", link.pid));
@@ -334,9 +349,7 @@ fn print_help() {
     ui::print("  links                    Manage active links");
     ui::print("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
     ui::print("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    ui::print(
-        "  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)"
-    );
+    ui::print("  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)");
     ui::print("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
     ui::print("  help                     Show this help");
     ui::print("  exit / kill              Quit linky");

@@ -24,46 +24,10 @@ pub fn print_bold(message: &str) {
     }
 }
 
-/// Print a message in cyan color
-pub fn print_cyan(message: &str) {
-    if should_use_colors() {
-        println!("{}", message.cyan());
-    } else {
-        println!("{}", message.clear());
-    }
-}
-
 /// Print a message in cyan color with bold styling
 pub fn print_cyan_bold(message: &str) {
     if should_use_colors() {
         println!("{}", message.cyan().bold());
-    } else {
-        println!("{}", message.clear());
-    }
-}
-
-/// Print a message in green color
-pub fn print_green(message: &str) {
-    if should_use_colors() {
-        println!("{}", message.green());
-    } else {
-        println!("{}", message.clear());
-    }
-}
-
-/// Print a message in red color
-pub fn print_red(message: &str) {
-    if should_use_colors() {
-        println!("{}", message.red());
-    } else {
-        println!("{}", message.clear());
-    }
-}
-
-/// Print a message in yellow color
-pub fn print_yellow(message: &str) {
-    if should_use_colors() {
-        println!("{}", message.yellow());
     } else {
         println!("{}", message.clear());
     }

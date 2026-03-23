@@ -12,9 +12,9 @@ use links::Links;
 
 fn main() {
     // Initialize tracing subscriber
-    let subscriber = tracing_subscriber::fmt()
-        .with_env_filter("linky=info,actix_web=info,actix_server=info");
-    
+    let subscriber =
+        tracing_subscriber::fmt().with_env_filter("linky=info,actix_web=info,actix_server=info");
+
     // Disable ANSI colors if not running in an interactive terminal
     if !atty::is(atty::Stream::Stdout) {
         subscriber.with_ansi(false).init();
