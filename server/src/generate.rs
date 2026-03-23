@@ -37,12 +37,7 @@ pub fn generate_native(callback: &str) {
 }
 
 pub fn generate_osx(callback: &str) {
-    build(
-        callback,
-        "links/osx",
-        "x86_64-apple-darwin",
-        "link-osx",
-    );
+    build(callback, "links/osx", "x86_64-apple-darwin", "link-osx");
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────────
@@ -102,7 +97,9 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
 
     tracing::info!(
         "Building {} implant ({}) for {} …",
-        output_name, target, callback
+        output_name,
+        target,
+        callback
     );
 
     let result = Command::new("cargo")
@@ -130,10 +127,7 @@ fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
                     Err(e) => tracing::error!("Copy failed: {}", e),
                 }
             } else {
-                tracing::error!(
-                    "Build succeeded but binary not found at {}",
-                    src.display()
-                );
+                tracing::error!("Build succeeded but binary not found at {}", src.display());
             }
         }
         Ok(s) => tracing::error!("Build failed (exit {})", s),

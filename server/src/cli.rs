@@ -223,7 +223,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     "shell" => queue(links, link_id, line.clone(), line.clone()),
                     "powershell" | "ps" => {
                         if !is_windows(links, link_id) {
-                            tracing::info!("{} 'powershell' is a Windows-only command.", "[-]".red());
+                            tracing::info!(
+                                "{} 'powershell' is a Windows-only command.",
+                                "[-]".red()
+                            );
                         } else {
                             queue(
                                 links,
@@ -240,7 +243,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     }
                     "integrity" => {
                         if !is_windows(links, link_id) {
-                            tracing::info!("{} 'integrity' is a Windows-only command.", "[-]".red());
+                            tracing::info!(
+                                "{} 'integrity' is a Windows-only command.",
+                                "[-]".red()
+                            );
                         } else {
                             queue(links, link_id, line.clone(), line.clone());
                         }
@@ -282,7 +288,11 @@ fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
             "  Last seen : {}",
             link.last_checkin.format("%Y-%m-%d %H:%M:%S")
         );
-        tracing::info!("  {}    : {}", "Status".cyan(), status_colored(&link.status));
+        tracing::info!(
+            "  {}    : {}",
+            "Status".cyan(),
+            status_colored(&link.status)
+        );
     }
 }
 
@@ -326,7 +336,9 @@ fn print_help() {
     tracing::info!("  links                    Manage active links");
     tracing::info!("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
     tracing::info!("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    tracing::info!("  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)");
+    tracing::info!(
+        "  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)"
+    );
     tracing::info!("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
     tracing::info!("  help                     Show this help");
     tracing::info!("  exit / kill              Quit linky");
