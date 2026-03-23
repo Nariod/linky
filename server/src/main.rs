@@ -4,6 +4,7 @@ mod links;
 mod routes;
 mod server;
 mod tasks;
+mod ui;
 
 use std::sync::{Arc, Mutex};
 
@@ -24,9 +25,9 @@ fn main() {
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:443".to_string());
 
-    tracing::info!("╔══════════════════════════════╗");
-    tracing::info!("║       Linky C2 Framework     ║");
-    tracing::info!("╚══════════════════════════════╝");
+    ui::print_bold("╔══════════════════════════════╗");
+    ui::print_bold("║       Linky C2 Framework     ║");
+    ui::print_bold("╚══════════════════════════════╝");
     tracing::info!("Starting HTTPS listener on {}", bind_addr);
 
     let links = Arc::new(Mutex::new(Links::default()));
