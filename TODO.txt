@@ -1,0 +1,668 @@
+================================================================================
+ LINKY C2 FRAMEWORK — TODO / ROADMAP
+ État de l'art C2 2026 · Analyse basée sur le code source complet
+ Généré le 2026-03-23
+================================================================================
+
+NOTE: Les priorités sont P0 (bloquant/critique), P1 (haute), P2 (moyenne), P3 (basse).
+      Chaque item est formulé comme une tâche actionnable pour Claude Code / Mistral.
+
+================================================================================
+ RÉCENTES AMÉLIORATIONS (2026-03-23)
+================================================================================
+
+[✅] UI.1  SÉPARATION DES MESSAGES UI ET DES LOGS
+         Créé un nouveau module ui.rs pour gérer les messages d'interface utilisateur
+         séparément du système de logging. Les messages UI utilisent maintenant
+         println!() direct tandis que les logs utilisent tracing::info!().
+         ✓ Résultat: Sortie console beaucoup plus lisible, séparation claire entre UI et logs
+
+[✅] UI.2  GESTION INTELLIGENTE DES COULEURS ANSI
+         Ajout de la dépendance `atty` pour détecter les terminaux non-interactifs
+         et désactiver automatiquement les codes de couleur ANSI.
+         ✓ Résultat: Plus de codes de couleur visibles dans les logs Podman/Docker
+
+[✅] UI.3  AMÉLIORATION DE LA LISIBILITÉ GLOBALE
+         Réorganisation complète de l'affichage pour séparer:
+         - Messages UI (propres, sans préfixes)
+         - Messages de log (avec timestamps et niveaux)
+         ✓ Résultat: Expérience utilisateur grandement améliorée
+
+[✅] BUILD.1  CORRECTION DU BUILD NATIF LINUX
+         Fix du problème où `generate-native` échouait avec "binary not found"
+         en corrigeant le chemin de recherche du binaire.
+         ✓ Résultat: La commande generate-native fonctionne maintenant correctement
+
+[✅] BUILD.2  AMÉLIORATION DES MESSAGES D'ERREUR MACOS
+         Messages d'erreur détaillés expliquant les étapes nécessaires pour
+         la cross-compilation macOS, avec reconnaissance des limitations
+         dans les environnements Docker/Podman.
+         ✓ Résultat: Utilisateurs mieux informés des requirements complexes
+
+[✅] CODE.1  NOUVEAU MODULE UI
+         Création de server/src/ui.rs avec des fonctions dédiées pour
+         l'affichage des messages d'interface utilisateur.
+         ✓ Résultat: Meilleure organisation du code et séparation des responsabilités
+
+[✅] CODE.2  DÉTECTION AUTOMATIQUE DES TERMINAUX
+         Utilisation de `atty::is()` pour détecter les environnements
+         non-interactifs et adapter l'affichage en conséquence.
+         ✓ Résultat: Meilleure compatibilité avec les conteneurs et les pipes
+
+================================================================================
+ 0. NETTOYAGE & DETTE TECHNIQUE (P0)
+================================================================================
+
+[✅] 0.4  CORRIGER l'incohérence CLI: le README documente "generate-osx <ip:port>"
+         mais cli.rs n'implémente pas "generate-osx", seulement "generate-native".
+         Ajouter la commande generate-osx dans cli.rs qui appelle
+         generate::generate_osx() (à créer dans generate.rs avec target
+         x86_64-apple-darwin).
+         ✓ Implémenté: generate-osx existe et fonctionne (mais nécessite configuration complexe)
+
+[✅] 0.5  AJOUTER le crate `tracing` pour remplacer println!/eprintln! dans tout
+         le serveur. Le Cargo.toml du serveur a `log = "0.4"` mais le code
+         n'utilise que println!(). Migrer vers tracing avec tracing-subscriber
+         pour du logging structuré (JSON optionnel).
+         ✓ Partiellement implémenté: tracing est utilisé pour les logs, mais les messages UI
+           utilisent maintenant un module dédié pour une meilleure séparation
+
+[ ] 0.1  SUPPRIMER le répertoire src/ racine (src/lib.rs, src/main.rs, src/c2/,
+         src/server/, src/utils/, src/implants/). C'est du code legacy/mort qui
+         génère des implants .cs/.sh avec du XOR "encryption" et une clé
+         hardcodée "default-encryption-key-12345". Le vrai code est dans server/
+         et links/. Ce code mort est une confusion majeure.
+
+[ ] 0.2  SUPPRIMER ou réécrire server/tests/basic_tests.rs et les modules
+         server/tests/c2/mod.rs + server/tests/utils/mod.rs. Ils testent le code
+         legacy de src/ (C2Server, C2Config, etc.) qui n'a rien à voir avec le
+         vrai serveur (server/src/). Ils ne compilent même pas contre le serveur
+         actuel.
+
+[ ] 0.3  SUPPRIMER ou réécrire examples/simple_demo.rs — il importe
+         "linky::{c2::C2Config, ...}" qui référence le code legacy de src/.
+         Remplacer par un exemple qui utilise curl pour tester le vrai protocole
+         3-stage.
+
+[ ] 0.6  AJOUTER `thiserror` + `anyhow` au serveur. Actuellement les erreurs
+         sont gérées avec des .unwrap(), .expect(), ou des eprintln!() suivis
+         de return. Créer un type d'erreur propre avec thiserror pour le serveur.
+
+[ ] 0.7  SUPPRIMER le Cargo.lock du .dockerignore — il DOIT être versionné
+         pour les builds reproductibles. (Actuellement dans .dockerignore)
+
+[ ] 1.2  ÉCHANGE DE CLÉ DE SESSION (ECDH)
+         Stage 2 (register) doit inclure un échange de clé Diffie-Hellman
+         éphémère (X25519) pour dériver la clé de session AES/ChaCha.
+         Le serveur envoie sa clé publique éphémère dans la réponse register,
+         l'implant dérive la clé partagée.
+         Crates: x25519-dalek, chacha20poly1305 ou aes-gcm
+
+[ ] 1.3  ROTATION DE CLÉS
+         Implémenter un mécanisme de rekeying périodique (toutes les N
+         interactions ou après un timeout). Le serveur envoie un nouveau
+         matériel de clé dans une task spéciale "rekey".
+
+[ ] 1.4  OBFUSCATION DES STRINGS STATIQUES DANS LES IMPLANTS
+         Les chaînes suivantes sont des signatures triviales pour un EDR/IDS :
+         - UA: "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0)..."
+           (links/*/src/stdlib.rs, const UA)
+         - Cookie: "banner=banner" (server/src/routes.rs ligne cookie_ok)
+         - Routes: "/js", "/static/register", "/static/get"
+           (server/src/server.rs, routes.rs)
+         - RegisterRequest field names: "link_username", "link_hostname"
+         Utiliser litcrypt2 ou obfstr pour chiffrer ces strings à la
+         compilation. Idéalement rendre UA, cookie, et routes configurables
+         à la génération (malleable profiles, voir 3.1).
+
+[ ] 1.5  JITTER SUR L'INTERVALLE DE POLLING
+         Le sleep(5) fixe dans links/*/src/stdlib.rs est un pattern réseau
+         détectable. Remplacer par sleep(base ± jitter%) avec:
+         - base configurable à la génération (via build.rs env var)
+         - jitter aléatoire (ex: ±30%)
+         Fichiers: links/linux/src/stdlib.rs fn sleep(),
+                   links/windows/src/stdlib.rs fn sleep(),
+                   links/osx/src/stdlib.rs fn sleep()
+
+[ ] 1.6  INTERVALLE DE POLLING CONFIGURABLE VIA TASKING
+         Ajouter une commande "sleep <seconds> [jitter%]" que l'opérateur
+         peut envoyer via le CLI pour modifier dynamiquement l'intervalle
+         de callback d'un implant. L'implant stocke la nouvelle valeur et
+         l'utilise pour le prochain cycle.
+
+[ ] 1.7  KILL DATE / EXPIRATION
+         Ajouter une date d'expiration compilée dans l'implant via build.rs
+         (env var KILL_DATE). Au-delà de cette date, l'implant arrête de
+         callback et se termine proprement.
+         Fichiers: links/*/build.rs, links/*/src/stdlib.rs (check au début
+         de chaque iteration de la boucle)
+
+[ ] 1.8  CONFIGURATION EMBARQUÉE CHIFFRÉE
+         Actuellement le callback address est en clair via env!("CALLBACK").
+         Chiffrer la config embarquée (callback, sleep, jitter, kill_date)
+         avec une clé dérivée à la compilation et la déchiffrer au runtime.
+
+
+================================================================================
+ 2. FONCTIONNALITÉS IMPLANT MANQUANTES (P0/P1)
+================================================================================
+
+── Transfert de fichiers ──────────────────────────────────────────────────────
+
+[ ] 2.1  FILE DOWNLOAD (exfiltration: implant → serveur) (P0)
+         Ajouter une commande "download <remote_path>" côté CLI qui :
+         1. Envoie la task "download <path>" à l'implant
+         2. L'implant lit le fichier, l'encode en base64, et le renvoie
+            dans le champ output (avec chunking pour les gros fichiers)
+         3. Le serveur décode et écrit le fichier localement
+         Fichiers: server/src/cli.rs (interact), links/*/src/stdlib.rs (dispatch)
+
+[ ] 2.2  FILE UPLOAD (infiltration: serveur → implant) (P0)
+         Ajouter une commande "upload <local_path> <remote_path>" côté CLI.
+         Le serveur encode le fichier en base64 et l'envoie comme payload
+         d'une task. L'implant le décode et l'écrit sur disque.
+         Nécessite un nouveau type de task ou un champ supplémentaire dans
+         TaskResponse pour les données binaires.
+
+── Reconnaissance système ─────────────────────────────────────────────────────
+
+[ ] 2.3  COMMANDE "info" ENRICHIE (P1)
+         Actuellement "info" n'affiche que les métadonnées côté serveur.
+         L'implant devrait collecter et envoyer :
+         - OS version détaillée
+         - Architecture (x86/x64/ARM)
+         - Domaine (Windows)
+         - Liste des interfaces réseau + IPs
+         - RAM / CPU
+         - Uptime
+         - Processus courant (nom, PID, PPID, user)
+         Fichiers: links/*/src/stdlib.rs dispatch("info")
+
+[ ] 2.4  COMMANDE "ps" — LISTE DES PROCESSUS (P1)
+         Lister les processus avec PID, PPID, nom, user, ligne de commande.
+         Linux: /proc/*/stat + /proc/*/cmdline
+         Windows: CreateToolhelp32Snapshot (le crate windows a déjà la feature
+                  Win32_System_Diagnostics_ToolHelp activée dans Cargo.toml!)
+         macOS: sysctl + libproc
+
+[ ] 2.5  COMMANDE "netstat" — CONNEXIONS RÉSEAU (P1)
+         Linux: parse /proc/net/tcp + /proc/net/udp
+         Windows: GetTcpTable2 / GetUdp6Table
+         macOS: netstat -an via shell
+
+[ ] 2.6  COMMANDE "env" — VARIABLES D'ENVIRONNEMENT (P2)
+         std::env::vars() — cross-platform, trivial à implémenter.
+
+── Screenshot & surveillance ──────────────────────────────────────────────────
+
+[ ] 2.7  SCREENSHOT (P1)
+         Linux: via X11 (x11rb crate) ou Wayland (pipewire-screencopy)
+         Windows: GDI BitBlt ou DXGI Desktop Duplication
+         macOS: CGDisplayCreateImage via core-graphics crate
+         Encoder en PNG, envoyer en base64.
+
+[ ] 2.8  KEYLOGGER (P2)
+         Windows: SetWindowsHookExW(WH_KEYBOARD_LL) ou Raw Input
+         Linux: lire /dev/input/eventN (nécessite root)
+         macOS: CGEventTapCreate (nécessite Accessibility permissions)
+         Commandes: "keylog start", "keylog stop", "keylog dump"
+
+[ ] 2.9  CLIPBOARD MONITOR (P2)
+         Windows: OpenClipboard / GetClipboardData
+         Linux: xclip -selection clipboard -o (ou wl-paste pour Wayland)
+         macOS: pbpaste
+
+
+================================================================================
+ 3. ÉVASION & OPSEC (P1)
+================================================================================
+
+── Réseau ─────────────────────────────────────────────────────────────────────
+
+[ ] 3.1  MALLEABLE C2 PROFILES (P1)
+         Rendre configurable à la génération :
+         - User-Agent (actuellement hardcodé IMPLANT_UA dans routes.rs +
+           UA dans les implants)
+         - Cookie name/value (actuellement "banner=banner")
+         - URL paths pour les 3 stages (actuellement /js, /static/register,
+           /static/get)
+         - Headers HTTP additionnels
+         - Body encoding (JSON, form-urlencoded, base64 dans un champ)
+         Implémenter via un fichier de profil TOML/YAML lu par generate.rs
+         et compilé dans l'implant via build.rs env vars.
+
+[ ] 3.2  SUPPORT REDIRECTEURS (P1)
+         Documenter l'utilisation avec Apache/Nginx mod_rewrite.
+         Le serveur doit aussi accepter les connexions sans valider l'IP
+         source (déjà le cas) et supporter le header X-Forwarded-For pour
+         logger la vraie IP de l'implant.
+
+[ ] 3.3  DOMAIN FRONTING (P2)
+         Support de l'en-tête Host différent du SNI TLS pour passer par
+         des CDN (CloudFront, Azure CDN). L'implant doit pouvoir configurer
+         le SNI et le Host header séparément.
+
+[ ] 3.4  CANAUX DE COMMUNICATION ALTERNATIFS (P2)
+         - DNS over HTTPS (DoH) comme canal C2 (encode les données dans les
+           queries DNS, utilise un résolveur DoH comme transport)
+         - WebSocket comme alternative au polling HTTP
+         - SMB named pipes pour le mouvement latéral (P2P entre implants)
+
+[ ] 3.5  PROXY-AWARE (Windows) (P1)
+         L'implant Windows devrait détecter automatiquement le proxy système
+         (WinINet / Registry / WPAD) et s'en servir pour les connexions.
+         reqwest supporte les proxys via .proxy(), mais il faut d'abord
+         détecter la config proxy du système.
+
+── Windows — anti-EDR ─────────────────────────────────────────────────────────
+
+[ ] 3.6  INDIRECT SYSCALLS (P1)
+         L'injection actuelle (links/windows/src/stdlib.rs fn inject_shellcode)
+         utilise directement VirtualAllocEx → WriteProcessMemory →
+         VirtualProtectEx → CreateRemoteThread via les crates windows/winapi.
+         Ces appels sont hookés par tous les EDR modernes.
+         Implémenter des syscalls indirects (Hell's Gate / Halo's Gate /
+         SysWhispers3) pour bypasser les hooks userland ntdll.
+
+[ ] 3.7  AMSI BYPASS (P1)
+         Patcher amsi.dll!AmsiScanBuffer en mémoire avant toute exécution
+         PowerShell. Nécessaire pour que la commande "powershell" du CLI
+         fonctionne sans déclencher AMSI.
+
+[ ] 3.8  ETW BYPASS (P1)
+         Patcher ntdll!EtwEventWrite pour empêcher la télémétrie ETW de
+         reporter les activités de l'implant.
+
+[ ] 3.9  NTDLL UNHOOKING (P1)
+         Remapper ntdll.dll depuis le disque (ou depuis KnownDlls) pour
+         supprimer tous les hooks EDR en une fois. Techniques :
+         - "Fresh copy" : lire ntdll.dll depuis disque, remapper la section
+           .text par-dessus celle en mémoire
+         - "Perun's Fart" : suspendre les threads, unhook, reprendre
+
+[ ] 3.10 TECHNIQUES D'INJECTION ALTERNATIVES (P2)
+         En plus de CreateRemoteThread (actuel), implémenter :
+         - Process Hollowing (RunPE)
+         - Early Bird APC injection
+         - Module Stomping
+         - Threadless injection (via callback table manipulation)
+         Ajouter des commandes CLI correspondantes.
+
+[ ] 3.11 PPID SPOOFING (P2)
+         Utiliser PROC_THREAD_ATTRIBUTE_PARENT_PROCESS pour spoofer le
+         parent process lors de la création de processus, masquant la
+         hiérarchie de processus suspecte.
+
+[ ] 3.12 DLL / SHELLCODE OUTPUT (P1)
+         Actuellement l'implant est généré uniquement en .exe (Windows) ou
+         ELF (Linux). Ajouter la génération en DLL (pour DLL sideloading)
+         et en shellcode position-independent (pour injection sRDI).
+         Fichiers: server/src/generate.rs
+
+── Linux — évasion ────────────────────────────────────────────────────────────
+
+[ ] 3.13 MEMFD_CREATE — EXÉCUTION FILELESS (P1)
+         Permettre à l'implant d'exécuter des binaires reçus du serveur
+         directement en mémoire via memfd_create() + fexecve() sans
+         toucher le disque.
+
+[ ] 3.14 MASQUAGE DU NOM DE PROCESSUS (P2)
+         Modifier argv[0] et/ou /proc/self/comm pour masquer le nom du
+         processus implant dans la liste des processus.
+
+[ ] 3.15 PTRACE INJECTION (P2)
+         Injection de code dans un processus existant via ptrace sur Linux.
+
+[ ] 3.16 LD_PRELOAD PERSISTENCE (P2)
+         Utiliser LD_PRELOAD pour injecter l'implant dans des processus
+         légitimes au démarrage.
+
+
+================================================================================
+ 4. PERSISTENCE (P1)
+================================================================================
+
+[ ] 4.1  PERSISTENCE LINUX
+         Implémenter des commandes "persist <method>" avec les méthodes :
+         - crontab (@reboot)
+         - systemd user service (~/.config/systemd/user/)
+         - .bashrc / .profile (injection de ligne de lancement)
+         - XDG autostart (~/.config/autostart/)
+         Fichiers: links/linux/src/stdlib.rs (nouveau module persist.rs)
+
+[ ] 4.2  PERSISTENCE WINDOWS
+         Méthodes :
+         - Registry Run/RunOnce (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)
+         - Scheduled Task (schtasks.exe ou COM API)
+         - Startup folder (%APPDATA%\Microsoft\Windows\Start Menu\Startup)
+         - Service creation (sc.exe ou COM API) — nécessite High integrity
+         - WMI Event Subscription (P2)
+         - COM Hijacking (P2)
+         Fichiers: links/windows/src/stdlib.rs (nouveau module persist.rs)
+
+[ ] 4.3  PERSISTENCE macOS
+         Méthodes :
+         - LaunchAgent (~/Library/LaunchAgents/)
+         - Login Items
+         Fichiers: links/osx/src/stdlib.rs (nouveau module persist.rs)
+
+
+================================================================================
+ 5. POST-EXPLOITATION AVANCÉE (P1/P2)
+================================================================================
+
+[ ] 5.1  CREDENTIAL HARVESTING (P1)
+         Windows:
+         - LSASS dump (MiniDumpWriteDump ou direct syscall NtReadVirtualMemory)
+         - SAM dump (reg save)
+         - Chrome/Edge/Firefox credentials (SQLite + DPAPI)
+         - Cached domain credentials
+         Linux:
+         - /etc/shadow (si root)
+         - SSH keys (~/.ssh/)
+         - Chrome/Firefox credentials
+         - GNOME Keyring / KDE Wallet
+
+[ ] 5.2  TOKEN MANIPULATION (Windows) (P1)
+         - Token impersonation (ImpersonateLoggedOnUser)
+         - Token stealing (OpenProcessToken + DuplicateTokenEx)
+         - Make/steal token (LogonUserW)
+         Commandes CLI: "steal_token <pid>", "rev2self", "make_token <user> <pass>"
+
+[ ] 5.3  UAC BYPASS (Windows) (P1)
+         Techniques :
+         - fodhelper.exe (registry hijack)
+         - eventvwr.exe (registry hijack)
+         - CMSTPLUA COM object
+         Commande CLI: "elevate <method>"
+
+[ ] 5.4  EXECUTE-ASSEMBLY — EXÉCUTION .NET EN MÉMOIRE (P1)
+         Charger et exécuter des assemblies .NET en mémoire via CLR hosting
+         (ICLRMetaHost → ICLRRuntimeInfo → ICorRuntimeHost).
+         Feature présente dans l'original postrequest/link mais absente de linky.
+         Commande CLI: "execute-assembly <base64_assembly> [args]"
+
+[ ] 5.5  BOF/COFF LOADER (P1)
+         Charger et exécuter des Beacon Object Files (COFF) en mémoire.
+         Permet d'utiliser l'écosystème BOF existant (Cobalt Strike BOFs)
+         sans passer par le disque.
+         Commande CLI: "inline-execute <base64_bof> [args]"
+
+[ ] 5.6  IN-MEMORY PE LOADER (P2)
+         Charger et exécuter des PE Windows en mémoire (reflective loading).
+         Feature présente dans l'original postrequest/link.
+         Commande CLI: "shinject <base64_pe> [args]"
+
+[ ] 5.7  INLINE SHELLCODE EXECUTION (P2)
+         Exécuter du shellcode dans le processus de l'implant lui-même
+         (pas seulement en remote comme actuellement).
+         Commande CLI: "shellcode <base64_shellcode>"
+
+[ ] 5.8  SOCKS PROXY / PORT FORWARDING (P1)
+         Implémenter un proxy SOCKS5 intégré à l'implant pour le pivoting
+         réseau. L'opérateur se connecte au port SOCKS local du serveur,
+         le trafic est tunnelé via l'implant.
+         Commande CLI: "socks start [port]", "socks stop"
+         Alternative: "portfwd add <local_port> <remote_host> <remote_port>"
+
+[ ] 5.9  RÉSEAU — SCAN DE PORTS INTÉGRÉ (P2)
+         Scanner de ports TCP basique intégré à l'implant.
+         Commande CLI: "portscan <target> <port_range>"
+
+[ ] 5.10 ÉNUMÉRATION ACTIVE DIRECTORY (P2)
+         Requêtes LDAP pour énumérer : users, groups, computers, GPOs,
+         trusts, SPNs (Kerberoasting), delegation.
+         Windows: via ADSI ou raw LDAP (ldap3 crate compilé pour Windows)
+         Commande CLI: "ad-enum users", "ad-enum groups", etc.
+
+[ ] 5.11 PASS-THE-HASH / PASS-THE-TICKET (P2)
+         Réutilisation de credentials NTLM/Kerberos.
+         Commande CLI: "pth <user> <ntlm_hash>", "ptt <base64_ticket>"
+
+[ ] 5.12 LATERAL MOVEMENT — PSEXEC-LIKE (P2)
+         Exécution de commandes sur des machines distantes via SMB + service.
+         Commande CLI: "psexec <target> <command>"
+
+
+================================================================================
+ 6. SERVEUR — FONCTIONNALITÉS OPÉRATIONNELLES (P1/P2)
+================================================================================
+
+[ ] 6.1  BASE DE DONNÉES PERSISTANTE (P1)
+         Actuellement tout est en mémoire (Links struct dans un Mutex).
+         Au redémarrage du serveur, toutes les sessions, tasks et résultats
+         sont perdus. Ajouter SQLite (via rusqlite ou sea-orm) pour
+         persister :
+         - Links (sessions)
+         - Tasks + résultats
+         - Fichiers téléchargés/uploadés
+         - Logs d'opération
+         Fichiers: server/src/links.rs, server/src/tasks.rs
+
+[ ] 6.2  LOGGING STRUCTURÉ POUR RAPPORTS DE PENTEST (P1)
+         Logger chaque opération avec timestamp, opérateur, commande,
+         résultat, link_id dans un fichier de log structuré (JSON ou CSV).
+         Indispensable pour les rapports de pentest et l'audit trail.
+
+[ ] 6.3  MULTI-LISTENER (P1)
+         Possibilité d'avoir plusieurs listeners sur différents
+         ports/protocoles simultanément. Actuellement le serveur ne bind
+         que sur une seule adresse.
+         Fichiers: server/src/main.rs, server/src/server.rs
+
+[ ] 6.4  MULTI-OPÉRATEUR (P2)
+         Support de plusieurs opérateurs simultanés avec gestion des rôles.
+         Nécessite une authentification des opérateurs et une gestion de
+         la concurrence sur les links (actuellement un seul Mutex global).
+
+[ ] 6.5  API REST POUR FRONTEND WEB (P2)
+         Exposer les fonctionnalités du serveur via une API REST JSON
+         (lister links, envoyer tasks, récupérer résultats) pour
+         permettre l'intégration d'un frontend web.
+
+[ ] 6.6  FRONTEND WEB / DASHBOARD (P3)
+         Interface web en complément du CLI (à la Mythic, Havoc, Sliver).
+         Technos possibles : Yew (Rust WASM), ou React/SvelteKit séparé
+         consommant l'API REST.
+
+[ ] 6.7  NOTIFICATIONS (P2)
+         Alerter l'opérateur quand un nouvel implant se connecte.
+         Channels : webhook HTTP, Slack, Discord, Telegram.
+         Fichiers: server/src/routes.rs (stage2_handler — après registration)
+
+[ ] 6.8  CERTIFICATS TLS LÉGITIMES (P1)
+         Support de certificats Let's Encrypt (via acme-client crate) ou
+         certificats custom (PEM) en plus du self-signed actuel.
+         Fichiers: server/src/server.rs (build_tls_config)
+
+[ ] 6.9  COMMANDE "sleep" CÔTÉ SERVEUR (P0)
+         Ajouter dans le CLI interact la commande "sleep <seconds> [jitter%]"
+         qui envoie une task spéciale pour modifier l'intervalle de polling
+         de l'implant. Ceci est lié à 1.5 et 1.6.
+
+[ ] 6.10 AFFICHAGE DES RÉSULTATS EN TEMPS RÉEL (P1)
+         Actuellement les résultats de task ne s'affichent que quand
+         l'opérateur est dans le contexte du link (interact mode).
+         Ajouter un système de notification qui affiche les résultats
+         même quand l'opérateur est au prompt principal.
+
+
+================================================================================
+ 7. IMPLANTS — QUALITÉ & TAILLE (P1/P2)
+================================================================================
+
+[ ] 7.1  FACTORISER LE CODE DES IMPLANTS (P1)
+         links/linux/src/stdlib.rs, links/osx/src/stdlib.rs, et
+         links/windows/src/stdlib.rs partagent ~80% de code identique
+         (wire types, build_client, link_loop, dispatch core, helpers).
+         Extraire le code commun dans un crate partagé links/common/ et
+         ne garder dans chaque implant que le code spécifique à la plateforme.
+
+[ ] 7.2  OPTIMISER LA TAILLE DES BINAIRES (P1)
+         Actuellement aucune optimisation de taille n'est configurée.
+         Ajouter dans les Cargo.toml des implants :
+         [profile.release]
+         opt-level = "z"      # Optimize for size
+         lto = true           # Link-Time Optimization
+         codegen-units = 1    # Single codegen unit
+         panic = "abort"      # Smaller binary
+         strip = true         # Strip symbols
+         Envisager UPX pour la compression post-build.
+
+[ ] 7.3  SUPPORT ARM / AARCH64 (P2)
+         Ajouter la cross-compilation pour :
+         - aarch64-unknown-linux-musl (ARM64 Linux — Raspberry Pi, routeurs)
+         - aarch64-apple-darwin (Apple Silicon)
+         Fichiers: server/src/generate.rs, server/src/cli.rs
+
+[ ] 7.4  NO_STD PARTIEL (P3)
+         Évaluer la possibilité de réduire les dépendances de l'implant
+         en utilisant no_std pour certaines parties (crypto, réseau custom).
+         Réduirait drastiquement la taille du binaire.
+
+[ ] 7.5  DAISY CHAINING / P2P (P2)
+         Communication implant-à-implant via :
+         - SMB named pipes (Windows)
+         - TCP direct (Linux/macOS)
+         Permet le mouvement latéral sans que chaque implant ait besoin
+         d'un accès direct à internet.
+
+[ ] 7.6  AUTO-UPDATE / STAGER (P2)
+         Capacité de mettre à jour l'implant en place. Implémenter un
+         "stager" minimaliste qui télécharge et exécute la version
+         complète, et une commande "update" qui remplace l'implant.
+
+
+================================================================================
+ 8. TESTS & CI/CD (P0/P1)
+================================================================================
+
+[ ] 8.1  TESTS UNITAIRES RÉELS (P0)
+         Les tests actuels dans server/src/links.rs sont bons (11 tests).
+         Ajouter des tests pour :
+         - server/src/tasks.rs (Task creation, status transitions)
+         - server/src/routes.rs (UA validation, cookie validation, stage
+           handlers avec actix_web::test)
+         - server/src/generate.rs (prerequisite checking)
+         - links/*/src/stdlib.rs (dispatch, split_first, list_dir — les
+           fonctions pures sans I/O)
+
+[ ] 8.2  TESTS D'INTÉGRATION DU PROTOCOLE C2 (P0)
+         Créer un test qui :
+         1. Démarre le serveur actix en background (actix_web::test::init_service)
+         2. Simule un implant en envoyant les 3 stages (GET /js, POST
+            /static/register, POST /static/get)
+         3. Vérifie que le serveur retourne les bonnes réponses (cookie,
+            x_request_id, tasks)
+         4. Vérifie le cycle complet task → output → display
+         Fichiers: server/tests/integration_test.rs (à créer)
+
+[ ] 8.3  CI/CD GITHUB ACTIONS (P0)
+         Créer .github/workflows/ci.yml avec :
+         - cargo fmt --all -- --check
+         - cargo clippy --workspace -- -D warnings
+         - cargo test --workspace
+         - cargo audit
+         - Build multi-target (Linux musl, Windows GNU) en mode release
+         - Optionnel: cargo-deny pour les licences
+
+[ ] 8.4  FUZZING DES PARSERS JSON (P2)
+         Utiliser cargo-fuzz pour fuzzer :
+         - Les handlers du serveur (RegisterRequest, CallbackRequest)
+         - Le dispatch des commandes côté implant
+         Fichiers: fuzz/ (à créer)
+
+[ ] 8.5  BENCHMARKS (P2)
+         Le Cargo.toml du serveur a criterion en dev-dependency mais aucun
+         benchmark n'existe. Ajouter des benchmarks pour :
+         - Link lookup by request_id (important pour la scalabilité)
+         - Task queue operations
+         - JSON serialization/deserialization
+         Fichiers: server/benches/ (à créer)
+
+
+================================================================================
+ 9. DOCUMENTATION & EXEMPLES (P2)
+================================================================================
+
+[ ] 9.1  DOC COMMENTS (/// ) sur toutes les fonctions publiques
+         Actuellement presque aucune doc comment dans le code.
+
+[ ] 9.2  ARCHITECTURE.md détaillant le protocole, les structures de données,
+         et le flux de contrôle.
+
+[ ] 9.3  CONTRIBUTING.md avec les instructions pour contribuer, le style
+         de code, et le workflow de PR.
+
+[ ] 9.4  Exemples curl / Python pour tester le protocole manuellement
+         (remplacer examples/simple_demo.rs qui ne fonctionne pas).
+
+[ ] 9.5  SECURITY.md avec la politique de divulgation responsable.
+
+
+================================================================================
+ 10. CONFIGURATION CLAUDE CODE POUR TEST INTERACTIF
+================================================================================
+
+Pour configurer Claude Code afin qu'il teste automatiquement les
+fonctionnalités des implants de manière interactive :
+
+10.1 CLAUDE.md (à la racine du projet) — voir fichier séparé
+
+10.2 Slash commands dans .claude/commands/ :
+     - /test-integration : build + lancement serveur + test des 3 stages
+     - /test-implant-commands : test systématique de chaque commande
+     - /security-review : audit unsafe, strings, deps, clippy pedantic
+     - /build-all : build server + tous les implants
+
+10.3 Hooks dans .claude/settings.json :
+     - PostToolUse (Edit:*.rs) → cargo clippy --workspace
+     - PostToolUse (Edit:links/*) → cargo test --workspace
+     - Stop → agent hook qui vérifie clippy + test + fmt avant d'arrêter
+
+10.4 Subagent .claude/agents/tester.md :
+     Agent spécialisé dans le test interactif, autorisé uniquement à
+     exécuter des commandes de build/test/curl, pas de modification du code.
+
+10.5 Script scripts/integration-test.sh :
+     Script bash autonome qui lance le cycle complet serveur + implant
+     Linux dans un container Podman, teste les 3 stages et les commandes,
+     et produit un rapport PASS/FAIL.
+
+NOTE: Les détails complets de la configuration Claude Code sont dans le
+fichier linky-analysis.md généré précédemment.
+
+
+================================================================================
+ ORDRE DE PRIORITÉ RECOMMANDÉ
+================================================================================
+
+Phase 1 — Fondations (P0, ~2 semaines)
+  0.1-0.7  Nettoyage du code mort + dette technique
+  1.1-1.2  Chiffrement des payloads + échange de clé
+  1.4-1.5  Obfuscation strings + jitter
+  8.1-8.3  Tests unitaires + intégration + CI/CD
+
+Phase 2 — C2 fonctionnel (~3 semaines)
+  2.1-2.2  File upload/download
+  2.3-2.5  Info enrichie, ps, netstat
+  1.6-1.8  Sleep configurable, kill date, config chiffrée
+  7.1-7.2  Factorisation implants + optimisation taille
+
+Phase 3 — Post-exploitation (~4 semaines)
+  4.1-4.3  Persistence (Linux/Windows/macOS)
+  5.1-5.3  Credentials, tokens, UAC bypass
+  3.6-3.9  Indirect syscalls, AMSI, ETW, unhooking
+  5.4-5.5  execute-assembly, BOF loader
+  5.8      SOCKS proxy / port forwarding
+
+Phase 4 — Avancé (~4 semaines)
+  3.10-3.12 Injection alternatives, PPID spoofing, DLL output
+  3.13-3.16 Linux fileless exec, process masking
+  5.6-5.7  PE loader, inline shellcode
+  5.9-5.12 Portscan, AD enum, lateral movement
+  6.3-6.10 Multi-listener, multi-opérateur, API, frontend
+
+================================================================================
+ FIN DU TODO
+================================================================================

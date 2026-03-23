@@ -6,3 +6,6 @@ link.exe
 link
 *.bin
 *.exe
+Cargo.lock
+/implants/*
+/test_implants/*

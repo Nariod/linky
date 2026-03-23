@@ -27,13 +27,8 @@ pub fn generate_linux(callback: &str) {
     );
 }
 
-pub fn generate_native(callback: &str) {
-    build(
-        callback,
-        "links/linux",
-        "x86_64-unknown-linux-gnu",
-        "link-linux-native",
-    );
+pub fn generate_osx(callback: &str) {
+    build(callback, "links/osx", "x86_64-apple-darwin", "link-osx");
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────────
@@ -49,8 +44,20 @@ fn check_prerequisites(target: &str) -> bool {
         .unwrap_or(false);
 
     if !target_installed {
-        eprintln!("[-] Rust target '{}' is not installed.", target);
-        eprintln!("    Fix: rustup target add {}", target);
+        tracing::error!("Rust target '{}' is not installed.", target);
+        tracing::error!("Fix: rustup target add {}", target);
+        if target == "x86_64-apple-darwin" {
+            tracing::error!("Note: macOS cross-compilation requires additional setup.");
+            tracing::error!("In Podman/Docker, you need to:");
+            tracing::error!("1. Install the macOS target: rustup target add x86_64-apple-darwin");
+            tracing::error!("2. Install cross-compilation tools: apt-get install clang llvm lld");
+            tracing::error!("3. Set up macOS SDK and environment variables");
+            tracing::error!(
+                "4. Configure cross-compilation with: TARGET_CC=x86_64-apple-darwin20-clang"
+            );
+            tracing::error!("This is complex and may not work in all Docker/Podman environments.");
+            tracing::error!("Consider building macOS implants on a macOS host instead.");
+        }
         return false;
     }
 
@@ -68,9 +75,9 @@ fn check_prerequisites(target: &str) -> bool {
         .unwrap_or(false);
 
     if !linker_found {
-        eprintln!("[-] Required C toolchain '{}' not found in PATH.", linker);
-        eprintln!("    Debian/Ubuntu: sudo apt-get install {}", debian_pkg);
-        eprintln!("    Fedora/RHEL:   sudo dnf install {}", fedora_pkg);
+        tracing::error!("Required C toolchain '{}' not found in PATH.", linker);
+        tracing::error!("Debian/Ubuntu: sudo apt-get install {}", debian_pkg);
+        tracing::error!("Fedora/RHEL:   sudo dnf install {}", fedora_pkg);
         return false;
     }
 
@@ -80,8 +87,8 @@ fn check_prerequisites(target: &str) -> bool {
 fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
     let dir = Path::new(crate_dir);
     if !dir.exists() {
-        eprintln!(
-            "[-] {} not found. Run linky from the workspace root.",
+        tracing::error!(
+            "{} not found. Run linky from the workspace root.",
             crate_dir
         );
         return;
@@ -91,9 +98,11 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         return;
     }
 
-    println!(
-        "[*] Building {} implant ({}) for {} …",
-        output_name, target, callback
+    tracing::info!(
+        "Building {} implant ({}) for {} …",
+        output_name,
+        target,
+        callback
     );
 
     let result = Command::new("cargo")
@@ -102,11 +111,20 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         .current_dir(dir)
         .status();
 
-    // Fix: Look for binary in workspace target directory
-    let binary = Path::new("target")
-        .join(target)
-        .join("release")
-        .join(output_name);
+    // Look for binary in the correct location based on target
+    let (binary_path, actual_binary_name) = if target == "x86_64-unknown-linux-gnu" {
+        // For native Linux builds, the binary is in the workspace root target directory
+        // Note: The binary name is always "link-linux" regardless of the output_name parameter
+        (Path::new("target").join("release"), "link-linux")
+    } else {
+        // For cross-compiled targets, look in the target-specific directory
+        (
+            Path::new("target").join(target).join("release"),
+            output_name,
+        )
+    };
+
+    let binary = binary_path.join(actual_binary_name);
 
     let dest = output_dir().join(output_name);
     handle_result(result, &binary, &dest);
@@ -117,17 +135,14 @@ fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
         Ok(s) if s.success() => {
             if src.exists() {
                 match fs::copy(src, dest) {
-                    Ok(_) => println!("[+] Implant written to {}", dest.display()),
-                    Err(e) => eprintln!("[-] Copy failed: {}", e),
+                    Ok(_) => tracing::info!("Implant written to {}", dest.display()),
+                    Err(e) => tracing::error!("Copy failed: {}", e),
                 }
             } else {
-                eprintln!(
-                    "[-] Build succeeded but binary not found at {}",
-                    src.display()
-                );
+                tracing::error!("Build succeeded but binary not found at {}", src.display());
             }
         }
-        Ok(s) => eprintln!("[-] Build failed (exit {})", s),
-        Err(e) => eprintln!("[-] Failed to invoke cargo: {}", e),
+        Ok(s) => tracing::error!("Build failed (exit {})", s),
+        Err(e) => tracing::error!("Failed to invoke cargo: {}", e),
     }
 }

