@@ -130,7 +130,10 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         .current_dir(dir)
         .status();
 
-    let binary = Path::new("target").join(target).join("release").join(output_name);
+    let binary = Path::new("target")
+        .join(target)
+        .join("release")
+        .join(output_name);
 
     let dest = output_dir().join(output_name);
     handle_result(result, &binary, &dest);

@@ -71,7 +71,11 @@ static KILL_DATE: AtomicI64 = AtomicI64::new(i64::MIN);
 
 fn get_kill_date() -> Option<i64> {
     let v = KILL_DATE.load(Ordering::Relaxed);
-    if v == i64::MIN { None } else { Some(v) }
+    if v == i64::MIN {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 fn set_kill_date(timestamp: Option<i64>) {
@@ -329,7 +333,9 @@ fn handle_killdate_command(args: &str) -> String {
         match get_kill_date() {
             Some(timestamp) => {
                 // Convert timestamp to readable date
-                if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp) {
+                if let Some(date_time) =
+                    chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp)
+                {
                     format!(
                         "Current kill date: {}",
                         date_time.format("%Y-%m-%d %H:%M:%S")
@@ -347,7 +353,8 @@ fn handle_killdate_command(args: &str) -> String {
         // Parse date in format YYYY-MM-DD or timestamp
         if let Ok(timestamp) = args.parse::<i64>() {
             set_kill_date(Some(timestamp));
-            if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp) {
+            if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp)
+            {
                 format!(
                     "[+] Kill date set to: {}",
                     date_time.format("%Y-%m-%d %H:%M:%S")
@@ -504,9 +511,7 @@ fn get_interface_ip(interface: &str) -> Option<String> {
     use std::fs;
 
     // Verify interface is up
-    let operstate = fs::read_to_string(
-        format!("/sys/class/net/{}/operstate", interface)
-    ).ok()?;
+    let operstate = fs::read_to_string(format!("/sys/class/net/{}/operstate", interface)).ok()?;
     if operstate.trim() != "up" {
         return None;
     }
@@ -522,8 +527,12 @@ fn get_interface_ip(interface: &str) -> Option<String> {
                     return Some(ip.to_string());
                 }
             }
-        } else if let Ok(val) = trimmed.split_whitespace().next()
-                                      .unwrap_or("").parse::<u32>() {
+        } else if let Ok(val) = trimmed
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .parse::<u32>()
+        {
             prev_ip = Some(std::net::Ipv4Addr::from(val));
         } else {
             prev_ip = None;

