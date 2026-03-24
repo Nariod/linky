@@ -382,20 +382,30 @@ fn print_help() {
 }
 
 fn print_link_help() {
-    ui::print("  cmd <args>          Execute via cmd.exe /C <args>");
-    ui::print("  shell <cmd>         Send raw command string");
-    ui::print("  powershell <args>   Execute via powershell.exe");
-    ui::print("  ls [path]           List directory");
-    ui::print("  cd <path>           Change directory");
-    ui::print("  pwd                 Print working directory");
-    ui::print("  whoami              Current user (domain\\user)");
-    ui::print("  pid                 Process ID");
-    ui::print("  integrity           Token integrity level");
-    ui::print("  inject <pid> <b64>  Inject base64 shellcode into PID");
-    ui::print("  download <path>     Download file from implant");
-    ui::print("  upload <local> <remote> Upload file to implant");
-    ui::print("  info                Show link metadata");
-    ui::print("  netstat              List network connections");
-    ui::print("  kill                Send exit + mark link dead");
-    ui::print("  back                Return to links menu");
+    ui::print("  ── Execution ────────────────────────────────────────");
+    ui::print("  shell <cmd>              Send raw command string");
+    ui::print("  cmd <args>               Execute via cmd.exe /C        (Windows only)");
+    ui::print("  powershell <args>        Execute via powershell.exe     (Windows only)");
+    ui::print("  ── Navigation ───────────────────────────────────────");
+    ui::print("  ls [path]                List directory");
+    ui::print("  cd <path>                Change directory");
+    ui::print("  pwd                      Print working directory");
+    ui::print("  whoami                   Current user");
+    ui::print("  pid                      Process ID");
+    ui::print("  ── Reconnaissance ───────────────────────────────────");
+    ui::print("  info                     Detailed system information");
+    ui::print("  ps                       List running processes");
+    ui::print("  netstat                  List network connections");
+    ui::print("  ── File transfer ────────────────────────────────────");
+    ui::print("  download <path>          Download file from implant");
+    ui::print("  upload <local> <remote>  Upload file to implant");
+    ui::print("  ── Operational ──────────────────────────────────────");
+    ui::print("  sleep <s> [jitter%]      Set polling interval (e.g. sleep 30 20)");
+    ui::print("  killdate <date|clear>    Set auto-exit date   (e.g. killdate 2026-12-31)");
+    ui::print("  ── Windows only ─────────────────────────────────────");
+    ui::print("  integrity                Token integrity level");
+    ui::print("  inject <pid> <b64>       Inject base64 shellcode into PID");
+    ui::print("  ── Session ──────────────────────────────────────────");
+    ui::print("  kill                     Send exit + mark link dead");
+    ui::print("  back                     Return to links menu");
 }
