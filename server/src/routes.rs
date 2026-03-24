@@ -194,6 +194,9 @@ pub async fn stage3_handler(
                     })
                     .unwrap_or_else(|| ("unknown".into(), String::new()));
                 let is_download = cli_cmd.starts_with("download ");
+                // Release the lock before re-acquiring it below; std::sync::Mutex is
+                // not reentrant — holding it across the inner lock() would deadlock.
+                drop(links_guard);
 
                 // Handle file download response
                 if is_download && body.q.starts_with("FILE:") {

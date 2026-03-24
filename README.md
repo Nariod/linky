@@ -205,7 +205,6 @@ linky> help
   links                    Manage active links
   generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)
   generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)
-  generate-native <ip:port> Build native Linux implant (x86_64-unknown-linux-gnu)
   generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)
   help                     Show this help
   exit / kill              Quit linky
@@ -217,10 +216,6 @@ linky> help
 linky> generate-linux 192.168.1.10:443
 [*] Building link-linux (x86_64-unknown-linux-musl) for 192.168.1.10:443 …
 [+] Implant written to ./link-linux
-
-linky> generate-native 192.168.1.10:443
-[*] Building link-linux-native (x86_64-unknown-linux-gnu) for 192.168.1.10:443 …
-[+] Implant written to ./link-linux-native
 ```
 
 The callback address is baked into the binary at compile time via `build.rs` (`cargo:rustc-env=CALLBACK=…`).

@@ -87,9 +87,37 @@ NOTE: Les priorités sont P0 (bloquant/critique), P1 (haute), P2 (moyenne), P3 (
 [ ] 0.6  AJOUTER `thiserror` + `anyhow` au serveur. Actuellement les erreurs
          sont gérées avec des .unwrap(), .expect(), ou des eprintln!() suivis
          de return. Créer un type d'erreur propre avec thiserror pour le serveur.
+         NOTE: thiserror et anyhow sont déjà dans server/Cargo.toml mais non utilisés.
 
 [ ] 0.7  SUPPRIMER le Cargo.lock du .dockerignore — il DOIT être versionné
          pour les builds reproductibles. (Actuellement dans .dockerignore)
+
+[✅] 0.8  REMPLACER `atty` (déprécié) par std::io::IsTerminal (stable Rust 1.70+)
+         CORRIGÉ: server/src/ui.rs utilise maintenant std::io::stdout().is_terminal()
+         et server/Cargo.toml ne dépend plus de atty.
+
+[ ] 0.9  REMPLACER static mut dans les implants par des atomiques idiomatiques
+         links/linux/src/stdlib.rs et links/windows/src/stdlib.rs utilisent
+         `static mut SLEEP_SECONDS: u64`, `JITTER_PERCENT: u32`, `KILL_DATE: Option<i64>`
+         avec des blocs unsafe pour chaque accès. Remplacer par:
+         - AtomicU64 pour SLEEP_SECONDS
+         - AtomicU32 pour JITTER_PERCENT
+         - AtomicI64 + AtomicBool (ou OnceLock<Mutex<Option<i64>>>) pour KILL_DATE
+         Les implants sont mono-thread donc le changement est trivial et élimine
+         tous les blocs unsafe.
+
+[ ] 0.10 CORRIGER chrono::DateTime::from_timestamp() déprécié
+         Utiliser DateTime::from_timestamp_opt() à la place dans
+         handle_killdate_command() (linux + windows stdlib.rs).
+
+[ ] 0.11 SIMPLIFIER les I/O fichiers dans les implants
+         download_file(): remplacer File::open + read_to_end par std::fs::read()
+         upload_file(): remplacer File::create + write_all par std::fs::write()
+         Fichiers: links/linux/src/stdlib.rs, links/windows/src/stdlib.rs
+
+[ ] 0.12 NETTOYER la branche morte dans generate.rs
+         La condition `if target == "x86_64-unknown-linux-gnu"` dans build()
+         ne sera jamais vraie (generate_native n'existe pas). À supprimer.
 
 [ ] 1.2  ÉCHANGE DE CLÉ DE SESSION (ECDH)
          Stage 2 (register) doit inclure un échange de clé Diffie-Hellman
@@ -115,32 +143,27 @@ NOTE: Les priorités sont P0 (bloquant/critique), P1 (haute), P2 (moyenne), P3 (
          compilation. Idéalement rendre UA, cookie, et routes configurables
          à la génération (malleable profiles, voir 3.1).
 
-[ ] 1.5  JITTER SUR L'INTERVALLE DE POLLING
-         Le sleep(5) fixe dans links/*/src/stdlib.rs est un pattern réseau
-         détectable. Remplacer par sleep(base ± jitter%) avec:
-         - base configurable à la génération (via build.rs env var)
-         - jitter aléatoire (ex: ±30%)
-         Fichiers: links/linux/src/stdlib.rs fn sleep(),
-                   links/windows/src/stdlib.rs fn sleep(),
-                   links/osx/src/stdlib.rs fn sleep()
+[✅] 1.5  JITTER SUR L'INTERVALLE DE POLLING
+         Implémenté: sleep_with_jitter(base, jitter_percent) dans
+         links/linux/src/stdlib.rs et links/windows/src/stdlib.rs.
+         Configurable dynamiquement via la commande "sleep <s> [jitter%]".
+         NOTE: links/osx/src/stdlib.rs utilise encore sleep(5) fixe.
 
-[ ] 1.6  INTERVALLE DE POLLING CONFIGURABLE VIA TASKING
-         Ajouter une commande "sleep <seconds> [jitter%]" que l'opérateur
-         peut envoyer via le CLI pour modifier dynamiquement l'intervalle
-         de callback d'un implant. L'implant stocke la nouvelle valeur et
-         l'utilise pour le prochain cycle.
+[✅] 1.6  INTERVALLE DE POLLING CONFIGURABLE VIA TASKING
+         Implémenté: handle_sleep_command() + SLEEP_SECONDS/JITTER_PERCENT
+         dans links/linux et links/windows. Commande "sleep" fonctionnelle
+         via le CLI (catch-all dans interact()).
 
-[ ] 1.7  KILL DATE / EXPIRATION
-         Ajouter une date d'expiration compilée dans l'implant via build.rs
-         (env var KILL_DATE). Au-delà de cette date, l'implant arrête de
-         callback et se termine proprement.
-         Fichiers: links/*/build.rs, links/*/src/stdlib.rs (check au début
-         de chaque iteration de la boucle)
+[✅] 1.7  KILL DATE / EXPIRATION
+         Implémenté: handle_killdate_command() + KILL_DATE + should_exit()
+         dans links/linux et links/windows. Supporte timestamp Unix,
+         YYYY-MM-DD, et "clear".
+         NOTE: links/osx/src/stdlib.rs n'implémente pas kill date.
 
-[ ] 1.8  CONFIGURATION EMBARQUÉE CHIFFRÉE
-         Actuellement le callback address est en clair via env!("CALLBACK").
-         Chiffrer la config embarquée (callback, sleep, jitter, kill_date)
-         avec une clé dérivée à la compilation et la déchiffrer au runtime.
+[✅] 1.8  CONFIGURATION EMBARQUÉE CHIFFRÉE
+         Implémenté: derive_key() + encrypt_config() + decrypt_config()
+         dans links/common/src/lib.rs (AES-256-GCM). Le callback est
+         décrypté au runtime dans link_loop().
 
 
 ================================================================================
@@ -149,46 +172,43 @@ NOTE: Les priorités sont P0 (bloquant/critique), P1 (haute), P2 (moyenne), P3 (
 
 ── Transfert de fichiers ──────────────────────────────────────────────────────
 
-[ ] 2.1  FILE DOWNLOAD (exfiltration: implant → serveur) (P0)
-         Ajouter une commande "download <remote_path>" côté CLI qui :
-         1. Envoie la task "download <path>" à l'implant
-         2. L'implant lit le fichier, l'encode en base64, et le renvoie
-            dans le champ output (avec chunking pour les gros fichiers)
-         3. Le serveur décode et écrit le fichier localement
-         Fichiers: server/src/cli.rs (interact), links/*/src/stdlib.rs (dispatch)
+[✅] 2.1  FILE DOWNLOAD (exfiltration: implant → serveur) (P0)
+         Implémenté: download_file() dans les implants Linux/Windows,
+         add_download_task() côté serveur, parse_file_response() dans routes.rs.
+         ⚠️ BUG CRITIQUE: Deadlock dans stage3_handler (routes.rs) lors de la
+         réception d'un fichier — links_guard tenu en scope lors du 2e lock().
+         CORRIGÉ: ajout de drop(links_guard) avant la seconde acquisition.
 
-[ ] 2.2  FILE UPLOAD (infiltration: serveur → implant) (P0)
-         Ajouter une commande "upload <local_path> <remote_path>" côté CLI.
-         Le serveur encode le fichier en base64 et l'envoie comme payload
-         d'une task. L'implant le décode et l'écrit sur disque.
-         Nécessite un nouveau type de task ou un champ supplémentaire dans
-         TaskResponse pour les données binaires.
+[⚠️] 2.2  FILE UPLOAD (infiltration: serveur → implant) (P0)
+         PARTIELLEMENT implémenté: CLI + server (add_upload_task, TaskResponse
+         contient upload/upload_path). MAIS les implants Linux/Windows ignorent
+         task.upload et task.upload_path dans link_loop() — seul task.q est
+         dispatché. La commande envoyée est "upload <remote_path>" sans le
+         contenu base64 → upload_file() retourne toujours "Invalid upload
+         command format". À corriger: lire task.upload/task.upload_path dans
+         la boucle de poll et les passer à dispatch().
 
 ── Reconnaissance système ─────────────────────────────────────────────────────
 
-[ ] 2.3  COMMANDE "info" ENRICHIE (P1)
-         Actuellement "info" n'affiche que les métadonnées côté serveur.
-         L'implant devrait collecter et envoyer :
-         - OS version détaillée
-         - Architecture (x86/x64/ARM)
-         - Domaine (Windows)
-         - Liste des interfaces réseau + IPs
-         - RAM / CPU
-         - Uptime
-         - Processus courant (nom, PID, PPID, user)
-         Fichiers: links/*/src/stdlib.rs dispatch("info")
+[✅] 2.3  COMMANDE "info" ENRICHIE (P1)
+         Implémenté: collect_system_info() dans Linux/Windows.
+         ⚠️ BUG Windows: uptime calcule time_since(UNIX_EPOCH) au lieu de
+         l'uptime réel → affiche ~499832h. À corriger.
+         ⚠️ BUG Linux: get_interface_ip() est un stub qui retourne
+         "{iface}: IP detection available" au lieu de l'IP réelle.
 
-[ ] 2.4  COMMANDE "ps" — LISTE DES PROCESSUS (P1)
-         Lister les processus avec PID, PPID, nom, user, ligne de commande.
-         Linux: /proc/*/stat + /proc/*/cmdline
-         Windows: CreateToolhelp32Snapshot (le crate windows a déjà la feature
-                  Win32_System_Diagnostics_ToolHelp activée dans Cargo.toml!)
-         macOS: sysctl + libproc
+[✅] 2.4  COMMANDE "ps" — LISTE DES PROCESSUS (P1)
+         Implémenté: list_processes() dans Linux (/proc parsing) et
+         Windows (tasklist /FO CSV /NH).
+         NOTE macOS: non implémenté dans links/osx.
 
-[ ] 2.5  COMMANDE "netstat" — CONNEXIONS RÉSEAU (P1)
-         Linux: parse /proc/net/tcp + /proc/net/udp
-         Windows: GetTcpTable2 / GetUdp6Table
-         macOS: netstat -an via shell
+[✅] 2.5  COMMANDE "netstat" — CONNEXIONS RÉSEAU (P1)
+         Implémenté: list_network_connections() Linux (/proc/net/tcp*) et
+         Windows (netstat -ano).
+         ⚠️ BUG LINUX: parse_net_connections() traite parts[1] comme IP seule,
+         or /proc/net/tcp stocke "IP_HEX:PORT_HEX" en un seul champ → le
+         parsing est décalé et les IPs sont fausses (little-endian non inversé).
+         NOTE macOS: non implémenté dans links/osx.
 
 [ ] 2.6  COMMANDE "env" — VARIABLES D'ENVIRONNEMENT (P2)
          std::env::vars() — cross-platform, trivial à implémenter.
@@ -475,10 +495,10 @@ NOTE: Les priorités sont P0 (bloquant/critique), P1 (haute), P2 (moyenne), P3 (
          certificats custom (PEM) en plus du self-signed actuel.
          Fichiers: server/src/server.rs (build_tls_config)
 
-[ ] 6.9  COMMANDE "sleep" CÔTÉ SERVEUR (P0)
-         Ajouter dans le CLI interact la commande "sleep <seconds> [jitter%]"
-         qui envoie une task spéciale pour modifier l'intervalle de polling
-         de l'implant. Ceci est lié à 1.5 et 1.6.
+[✅] 6.9  COMMANDE "sleep" CÔTÉ SERVEUR (P0)
+         Implémenté: "sleep" et "killdate" tombent dans le catch-all de
+         interact() → envoyés à l'implant comme commandes brutes → dispatché
+         via handle_sleep_command() / handle_killdate_command().
 
 [ ] 6.10 AFFICHAGE DES RÉSULTATS EN TEMPS RÉEL (P1)
          Actuellement les résultats de task ne s'affichent que quand

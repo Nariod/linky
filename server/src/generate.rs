@@ -111,20 +111,7 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         .current_dir(dir)
         .status();
 
-    // Look for binary in the correct location based on target
-    let (binary_path, actual_binary_name) = if target == "x86_64-unknown-linux-gnu" {
-        // For native Linux builds, the binary is in the workspace root target directory
-        // Note: The binary name is always "link-linux" regardless of the output_name parameter
-        (Path::new("target").join("release"), "link-linux")
-    } else {
-        // For cross-compiled targets, look in the target-specific directory
-        (
-            Path::new("target").join(target).join("release"),
-            output_name,
-        )
-    };
-
-    let binary = binary_path.join(actual_binary_name);
+    let binary = Path::new("target").join(target).join("release").join(output_name);
 
     let dest = output_dir().join(output_name);
     handle_result(result, &binary, &dest);
