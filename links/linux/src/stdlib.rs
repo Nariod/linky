@@ -503,26 +503,33 @@ fn collect_system_info() -> String {
 fn get_interface_ip(interface: &str) -> Option<String> {
     use std::fs;
 
-    let ip_path = format!("/sys/class/net/{}/operstate", interface);
-
-    // Check if interface is up
-    let operstate = match fs::read_to_string(&ip_path) {
-        Ok(content) => content,
-        Err(_) => return None,
-    };
-
+    // Verify interface is up
+    let operstate = fs::read_to_string(
+        format!("/sys/class/net/{}/operstate", interface)
+    ).ok()?;
     if operstate.trim() != "up" {
         return None;
     }
 
-    // Return the main local IP for simplicity
-    // In a real implementation, you would parse /proc/net/fib_trie or use netlink
-    let ip = local_ip();
-    if ip == "unknown" {
-        None
-    } else {
-        Some(ip)
+    // Parse /proc/net/fib_trie for LOCAL addresses
+    let fib = fs::read_to_string("/proc/net/fib_trie").ok()?;
+    let mut prev_ip: Option<std::net::Ipv4Addr> = None;
+    for line in fib.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("LOCAL") && trimmed.starts_with("32") {
+            if let Some(ip) = prev_ip {
+                if !ip.is_loopback() && !ip.is_unspecified() {
+                    return Some(ip.to_string());
+                }
+            }
+        } else if let Ok(val) = trimmed.split_whitespace().next()
+                                      .unwrap_or("").parse::<u32>() {
+            prev_ip = Some(std::net::Ipv4Addr::from(val));
+        } else {
+            prev_ip = None;
+        }
     }
+    None
 }
 
 fn list_processes() -> String {
