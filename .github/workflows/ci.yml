@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, link-update ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+  CALLBACK: "127.0.0.1:8443"
+
+jobs:
+  check:
+    name: Check & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install cross-compilation deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y musl-tools mingw-w64
+
+      - name: Add targets
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Test (server)
+        run: cargo test -p linky
+
+      - name: Check implants build
+        run: |
+          cargo check -p link-linux
+          cargo check -p link-windows
+          cargo check -p link-common

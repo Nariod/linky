@@ -1,8 +1,19 @@
+use base64::Engine;
 use chrono::{DateTime, Local};
 use std::collections::VecDeque;
 use uuid::Uuid;
 
 use crate::tasks::{Task, TaskStatus};
+
+/// Task data returned by get_next_task
+pub struct NextTaskData {
+    pub command: String,
+    pub task_id: String,
+    pub file_content: Option<String>,
+    pub file_name: Option<String>,
+    pub upload_content: Option<String>,
+    pub upload_path: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LinkStatus {
@@ -82,7 +93,7 @@ impl Links {
     }
 
     /// Returns the first `Waiting` task and marks it `InProgress`.
-    pub fn get_next_task(&mut self, link_id: Uuid) -> Option<Task> {
+    pub fn get_next_task(&mut self, link_id: Uuid) -> Option<NextTaskData> {
         let link = self.links.iter_mut().find(|l| l.id == link_id)?;
         let task = link
             .tasks
@@ -90,7 +101,14 @@ impl Links {
             .find(|t| t.status == TaskStatus::Waiting)?;
         let snapshot = task.clone();
         task.status = TaskStatus::InProgress;
-        Some(snapshot)
+        Some(NextTaskData {
+            command: snapshot.command,
+            task_id: snapshot.id.to_string(),
+            file_content: snapshot.file_content,
+            file_name: snapshot.file_name,
+            upload_content: snapshot.upload_content,
+            upload_path: snapshot.upload_path,
+        })
     }
 
     pub fn complete_task(&mut self, link_id: Uuid, task_id: Uuid, output: String) {
@@ -119,6 +137,59 @@ impl Links {
         Some(id)
     }
 
+    pub fn add_download_task(&mut self, link_id: Uuid, remote_path: String) -> Option<Uuid> {
+        let task = Task {
+            id: Uuid::new_v4(),
+            command: format!("download {}", remote_path),
+            cli_command: format!("download {}", remote_path),
+            status: TaskStatus::Waiting,
+            output: String::new(),
+            file_content: None,
+            file_name: None,
+            upload_content: None,
+            upload_path: None,
+        };
+        let id = task.id;
+        self.links
+            .iter_mut()
+            .find(|l| l.id == link_id)?
+            .tasks
+            .push_back(task);
+        Some(id)
+    }
+
+    pub fn add_upload_task(
+        &mut self,
+        link_id: Uuid,
+        local_path: String,
+        remote_path: String,
+    ) -> Option<Uuid> {
+        // Read the file content
+        let file_content = match std::fs::read(&local_path) {
+            Ok(content) => base64::engine::general_purpose::STANDARD.encode(content),
+            Err(_) => return None,
+        };
+
+        let task = Task {
+            id: Uuid::new_v4(),
+            command: format!("upload {}", remote_path),
+            cli_command: format!("upload {} {}", local_path, remote_path),
+            status: TaskStatus::Waiting,
+            output: String::new(),
+            file_content: None,
+            file_name: None,
+            upload_content: Some(file_content),
+            upload_path: Some(remote_path),
+        };
+        let id = task.id;
+        self.links
+            .iter_mut()
+            .find(|l| l.id == link_id)?
+            .tasks
+            .push_back(task);
+        Some(id)
+    }
+
     /// Mark links that have not checked in for more than 90 s as `Inactive`.
     pub fn mark_inactive(&mut self) {
         let threshold = Local::now() - chrono::TimeDelta::seconds(90);
@@ -135,6 +206,10 @@ impl Links {
 
     pub fn get_link(&self, id: Uuid) -> Option<&Link> {
         self.links.iter().find(|l| l.id == id)
+    }
+
+    pub fn get_link_mut(&mut self, id: Uuid) -> Option<&mut Link> {
+        self.links.iter_mut().find(|l| l.id == id)
     }
 
     pub fn get_link_by_name(&self, name: &str) -> Option<&Link> {
@@ -235,8 +310,9 @@ mod tests {
         let mut links = make_links();
         let id = add_test_link(&mut links, "linux");
         links.add_task(id, "whoami".into(), "whoami".into());
-        let task = links.get_next_task(id).expect("should have a task");
-        assert_eq!(task.command, "whoami");
+        let task_data = links.get_next_task(id).expect("should have a task");
+        assert_eq!(task_data.command, "whoami");
+        assert!(!task_data.task_id.is_empty());
     }
 
     #[test]
@@ -260,6 +336,8 @@ mod tests {
         let task = link.tasks.iter().find(|t| t.id == task_id).unwrap();
         assert_eq!(task.output, "root");
         assert_eq!(task.status, crate::tasks::TaskStatus::Completed);
+        assert!(task.file_content.is_none());
+        assert!(task.file_name.is_none());
     }
 
     #[test]

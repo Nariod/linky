@@ -47,7 +47,10 @@ fn main() {
     let links_gc = links.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(30));
-        links_gc.lock().unwrap().mark_inactive();
+        links_gc
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .mark_inactive();
     });
 
     // CLI runs on the main thread (rustyline is synchronous)

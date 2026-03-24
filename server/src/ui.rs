@@ -1,9 +1,10 @@
 use colored::Colorize;
+use std::io::IsTerminal as _;
 
 /// Check if we're running in a terminal that supports colors
 fn should_use_colors() -> bool {
     // Check if NO_COLOR is set or if we're not in a terminal
-    std::env::var("NO_COLOR").is_err() && atty::is(atty::Stream::Stdout)
+    std::env::var("NO_COLOR").is_err() && std::io::stdout().is_terminal()
 }
 
 /// Print a message to the console without using tracing (for UI output)

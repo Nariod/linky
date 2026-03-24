@@ -24,7 +24,9 @@
       "Bash(rm -f /home/fedora/Documents/linky/implants/*)",
       "Bash(printf 'generate-linux 192.168.1.10:8443\\\\ngenerate 192.168.1.10:8443\\\\nlinks\\\\nback\\\\nexit\\\\n')",
       "Bash(printf 'generate-linux 192.168.1.10:8443\\\\ngenerate 192.168.1.10:8443\\\\nexit\\\\n')",
-      "Bash(printf 'generate 192.168.1.10:8443\\\\ngenerate-osx 192.168.1.10:8443\\\\nexit\\\\n')"
+      "Bash(printf 'generate 192.168.1.10:8443\\\\ngenerate-osx 192.168.1.10:8443\\\\nexit\\\\n')",
+      "Bash(printf 'generate-linux 192.168.1.10:8443\\\\nexit\\\\n')",
+      "Bash(readelf -d /home/fedora/Documents/linky/implants/link-linux)"
     ]
   }
 }

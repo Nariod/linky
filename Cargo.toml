@@ -4,5 +4,6 @@ members = [
     "links/windows",
     "links/linux",
     "links/osx",
+    "links/common",
 ]
 resolver = "2"
