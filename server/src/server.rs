@@ -3,10 +3,11 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::ServerConfig;
 use std::sync::{Arc, Mutex};
 
+use crate::error::Result;
 use crate::links::Links;
 use crate::routes::{ok_handler, stage1_handler, stage2_handler, stage3_handler, AppState};
 
-pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> std::io::Result<()> {
+pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> Result<()> {
     let tls_config = build_tls_config();
     let state = web::Data::new(AppState { links });
 
@@ -21,6 +22,7 @@ pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> std::io::Result
     .bind_rustls_0_23(bind_addr, tls_config)?
     .run()
     .await
+    .map_err(|e| crate::error::LinkyError::ActixWeb(e.into()))
 }
 
 /// Generate a self-signed TLS certificate via rcgen (no external openssl needed).

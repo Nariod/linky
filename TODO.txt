@@ -41,40 +41,40 @@ Objectif MVP : atteindre ~50% — suffisant pour des engagements simples.
 ================================================================================
 Tout ce sprint est du code à supprimer ou corriger, pas à écrire.
 
-[ ] 0.1  SUPPRIMER le répertoire src/ racine
+[✅] 0.1  SUPPRIMER le répertoire src/ racine
          src/lib.rs, src/main.rs, src/c2/, src/server/, src/utils/, src/implants/
          C'est du code legacy mort avec du XOR et une clé hardcodée
          "default-encryption-key-12345". Confusion majeure pour les contributeurs.
 
-[ ] 0.2  SUPPRIMER ou réécrire server/tests/basic_tests.rs
+[✅] 0.2  SUPPRIMER ou réécrire server/tests/basic_tests.rs
          + server/tests/c2/mod.rs + server/tests/utils/mod.rs
          Ils testent le code legacy de src/ et ne compilent pas.
 
-[ ] 0.3  SUPPRIMER examples/simple_demo.rs
+[✅] 0.3  SUPPRIMER examples/simple_demo.rs
          Importe "linky::{c2::C2Config, ...}" du code legacy.
          → Remplacer par un script curl documenté dans le README.
 
-[ ] 0.4  RETIRER Cargo.lock du .dockerignore
+[✅] 0.4  RETIRER Cargo.lock du .dockerignore
          Le lock file DOIT être versionné pour les builds reproductibles.
 
-[ ] 0.5  AJOUTER thiserror + anyhow au serveur
+[✅] 0.5  AJOUTER thiserror + anyhow au serveur
          Remplacer les .unwrap()/.expect()/eprintln! par un type d'erreur
          propre. Les crates sont déjà dans Cargo.toml mais non utilisés.
          → Créer server/src/error.rs avec #[derive(thiserror::Error)].
 
-[ ] 0.6  REMPLACER static mut restants dans les implants
+[✅] 0.6  REMPLACER static mut restants dans les implants
          links/osx/src/stdlib.rs utilise encore sleep(5) fixe sans
          atomiques. Aligner sur le pattern AtomicU64 de linux/windows.
 
-[ ] 0.7  CORRIGER chrono::DateTime::from_timestamp() déprécié
+[✅] 0.7  CORRIGER chrono::DateTime::from_timestamp() déprécié
          → Utiliser from_timestamp_opt() dans handle_killdate_command().
 
-[ ] 0.8  SIMPLIFIER les I/O fichiers dans les implants
+[✅] 0.8  SIMPLIFIER les I/O fichiers dans les implants
          download_file(): std::fs::read() au lieu de File::open + read_to_end
          upload_file(): std::fs::write() au lieu de File::create + write_all
          (Déjà fait dans Linux, vérifier Windows)
 
-[ ] 0.9  NETTOYER la branche morte dans generate.rs
+[✅] 0.9  NETTOYER la branche morte dans generate.rs
          Condition `if target == "x86_64-unknown-linux-gnu"` jamais vraie.
 
 [✅] 0.10 std::io::IsTerminal au lieu de atty (déjà corrigé)
