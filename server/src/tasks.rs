@@ -41,3 +41,24 @@ impl Task {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_task_is_waiting() {
+        let t = Task::new("whoami".into(), "whoami".into());
+        assert_eq!(t.status, TaskStatus::Waiting);
+        assert!(t.output.is_empty());
+        assert!(t.file_content.is_none());
+        assert!(t.upload_content.is_none());
+    }
+
+    #[test]
+    fn task_has_unique_ids() {
+        let t1 = Task::new("cmd1".into(), "cmd1".into());
+        let t2 = Task::new("cmd2".into(), "cmd2".into());
+        assert_ne!(t1.id, t2.id);
+    }
+}

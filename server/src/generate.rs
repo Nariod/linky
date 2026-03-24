@@ -9,6 +9,25 @@ fn output_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_dir_defaults_to_dot() {
+        // LINKY_OUTPUT_DIR non défini → doit retourner "."
+        std::env::remove_var("LINKY_OUTPUT_DIR");
+        assert_eq!(output_dir(), std::path::PathBuf::from("."));
+    }
+
+    #[test]
+    fn output_dir_uses_env_var() {
+        std::env::set_var("LINKY_OUTPUT_DIR", "/tmp/test_implants");
+        assert_eq!(output_dir(), std::path::PathBuf::from("/tmp/test_implants"));
+        std::env::remove_var("LINKY_OUTPUT_DIR");
+    }
+}
+
 pub fn generate_windows(callback: &str) {
     build(
         callback,

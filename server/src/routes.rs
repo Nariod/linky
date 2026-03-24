@@ -109,7 +109,7 @@ pub async fn stage2_handler(
         return HttpResponse::NotFound().finish();
     }
 
-    let mut links = data.links.lock().unwrap();
+    let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
     let link = links.add_link(
         body.link_username.clone(),
         body.link_hostname.clone(),
@@ -168,7 +168,7 @@ pub async fn stage3_handler(
     };
 
     let link_id = {
-        let links = data.links.lock().unwrap();
+        let links = data.links.lock().unwrap_or_else(|e| e.into_inner());
         links.find_by_request_id(x_req_id).map(|l| l.id)
     };
 
@@ -180,7 +180,7 @@ pub async fn stage3_handler(
     if !body.tasking.is_empty() {
         if let Ok(task_id) = Uuid::parse_str(&body.tasking) {
             if !body.q.is_empty() {
-                let links_guard = data.links.lock().unwrap();
+                let links_guard = data.links.lock().unwrap_or_else(|e| e.into_inner());
                 let (link_name, cli_cmd): (String, String) = links_guard
                     .get_link(link_id)
                     .map(|l| {
@@ -201,7 +201,7 @@ pub async fn stage3_handler(
                 // Handle file download response
                 if is_download && body.q.starts_with("FILE:") {
                     if let Some((file_path, file_content)) = parse_file_response(&body.q) {
-                        let mut links_mut = data.links.lock().unwrap();
+                        let mut links_mut = data.links.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(link) = links_mut.get_link_mut(link_id) {
                             if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
                                 task.file_name = Some(file_path.clone());
@@ -234,7 +234,7 @@ pub async fn stage3_handler(
                     );
                 }
             }
-            let mut links_mut = data.links.lock().unwrap();
+            let mut links_mut = data.links.lock().unwrap_or_else(|e| e.into_inner());
             links_mut.complete_task(link_id, task_id, body.q.clone());
         }
     }
@@ -243,7 +243,7 @@ pub async fn stage3_handler(
     let new_x_req_id = Uuid::new_v4();
     let (q, tasking, file, filename, upload, upload_path);
     {
-        let mut links_mut = data.links.lock().unwrap();
+        let mut links_mut = data.links.lock().unwrap_or_else(|e| e.into_inner());
         links_mut.update_checkin(link_id, new_x_req_id);
 
         // Dispatch next waiting task, if any
