@@ -215,14 +215,11 @@ pub fn sleep(secs: u64) {
 }
 
 pub fn sleep_with_jitter(base_seconds: u64, jitter_percent: u32) {
-    use rand::Rng;
-
     if jitter_percent == 0 {
         sleep(base_seconds);
     } else {
         let jitter_range = (base_seconds as f64 * jitter_percent as f64 / 100.0) as i64;
-        let mut rng = rand::thread_rng();
-        let jitter = rng.gen_range(-jitter_range..=jitter_range);
+        let jitter = (rand::random::<u64>() as i64 % (2 * jitter_range + 1)) - jitter_range;
         let sleep_time = if jitter.is_negative() {
             base_seconds.saturating_sub(jitter.unsigned_abs())
         } else {
