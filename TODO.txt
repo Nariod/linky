@@ -65,7 +65,7 @@ Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
 
 ── Cryptographie ──────────────────────────────────────────────────────────────
 
-[ ] 1.1  CLÉ UNIQUE PAR IMPLANT À LA GÉNÉRATION
+[✅] 1.1  CLÉ UNIQUE PAR IMPLANT À LA GÉNÉRATION
          Problème : derive_key("linky-secret-key", "callback-salt") est
          identique pour TOUS les implants. Un seul reverse → toutes les
          configs compromises.
@@ -74,8 +74,9 @@ Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
          - Injecté via build.rs comme env var CARGO : IMPLANT_SECRET
          - Le serveur stocke le secret dans la struct Link au register
          - L'implant dérive sa clé avec derive_key(IMPLANT_SECRET, salt)
+         - Secret transmis via header HTTP X-Client-ID (discret)
          Fichiers : server/src/generate.rs, links/*/build.rs,
-                    links/common/src/lib.rs
+                    links/common/src/lib.rs, server/src/routes.rs
          Difficulté : moyenne (touche generate + build.rs + common + routes)
 
 [ ] 1.2  CHIFFREMENT DES PAYLOADS C2 (stage 3)
