@@ -1,7 +1,7 @@
 ================================================================================
  LINKY C2 FRAMEWORK — TODO / ROADMAP
  Approche KISS · MVP · Idiomatic Rust
- Mis à jour le 2026-03-24
+ Mis à jour le 2026-03-25 (revue complète du code)
 ================================================================================
 
 PHILOSOPHIE
@@ -37,55 +37,130 @@ Objectif MVP : atteindre ~50% — suffisant pour des engagements simples.
 
 
 ================================================================================
- SPRINT 0 — NETTOYAGE & DETTE TECHNIQUE (P0, ~3 jours)
+ SPRINT 0 — NETTOYAGE & DETTE TECHNIQUE (P0, ~3 jours) ✅ COMPLÉTÉ
 ================================================================================
-Tout ce sprint est du code à supprimer ou corriger, pas à écrire.
 
-[✅] 0.1  SUPPRIMER le répertoire src/ racine
-         src/lib.rs, src/main.rs, src/c2/, src/server/, src/utils/, src/implants/
-         C'est du code legacy mort avec du XOR et une clé hardcodée
-         "default-encryption-key-12345". Confusion majeure pour les contributeurs.
-
+[✅] 0.1  SUPPRIMER le répertoire src/ racine (code legacy mort)
 [✅] 0.2  SUPPRIMER ou réécrire server/tests/basic_tests.rs
-         + server/tests/c2/mod.rs + server/tests/utils/mod.rs
-         Ils testent le code legacy de src/ et ne compilent pas.
-
 [✅] 0.3  SUPPRIMER examples/simple_demo.rs
-         Importe "linky::{c2::C2Config, ...}" du code legacy.
-         → Remplacer par un script curl documenté dans le README.
-
 [✅] 0.4  RETIRER Cargo.lock du .dockerignore
-         Le lock file DOIT être versionné pour les builds reproductibles.
-
 [✅] 0.5  AJOUTER thiserror + anyhow au serveur
-         Remplacer les .unwrap()/.expect()/eprintln! par un type d'erreur
-         propre. Les crates sont déjà dans Cargo.toml mais non utilisés.
-         → Créer server/src/error.rs avec #[derive(thiserror::Error)].
-
 [✅] 0.6  REMPLACER static mut restants dans les implants
-         links/osx/src/stdlib.rs utilise encore sleep(5) fixe sans
-         atomiques. Aligner sur le pattern AtomicU64 de linux/windows.
-
 [✅] 0.7  CORRIGER chrono::DateTime::from_timestamp() déprécié
-         → Utiliser from_timestamp_opt() dans handle_killdate_command().
-
 [✅] 0.8  SIMPLIFIER les I/O fichiers dans les implants
-         download_file(): std::fs::read() au lieu de File::open + read_to_end
-         upload_file(): std::fs::write() au lieu de File::create + write_all
-         (Déjà fait dans Linux, vérifier Windows)
-
 [✅] 0.9  NETTOYER la branche morte dans generate.rs
-         Condition `if target == "x86_64-unknown-linux-gnu"` jamais vraie.
+[✅] 0.10 std::io::IsTerminal au lieu de atty
+[✅] 0.11 Atomiques pour sleep/jitter/killdate
 
-[✅] 0.10 std::io::IsTerminal au lieu de atty (déjà corrigé)
 
-[✅] 0.11 Atomiques pour sleep/jitter/killdate (déjà corrigé Linux/Windows)
+================================================================================
+ SPRINT 0.5 — DETTE TECHNIQUE DÉCOUVERTE (P0, ~3-4 jours)
+================================================================================
+Issues découvertes lors de la revue du 2026-03-25. Doivent être résolues
+AVANT le Sprint 1 car elles affectent la stabilité et la maintenabilité.
+
+── Factorisation du code ──────────────────────────────────────────────────────
+
+[ ] 0.5.1 MIGRER l'implant OSX vers link-common
+          Problème : links/osx/src/stdlib.rs duplique RegisterRequest,
+          CallbackRequest, TaskResponse, et build_client() localement.
+          L'implant OSX ne dépend même pas de link-common (voir Cargo.toml).
+          Solution :
+          - Ajouter link-common comme dépendance dans links/osx/Cargo.toml
+          - Supprimer les structs/fonctions dupliquées dans stdlib.rs
+          - Utiliser les imports de link-common
+          - Ajouter les deps manquantes : rand, chrono, aes-gcm, sha2, hex
+          Fichiers : links/osx/Cargo.toml, links/osx/src/stdlib.rs
+
+[ ] 0.5.2 FACTORISER les fonctions partagées Linux/Windows → link-common
+          Les fonctions suivantes sont identiques ou quasi-identiques :
+          - sleep_with_jitter()          → link_common::sleep_with_jitter()
+          - handle_sleep_command()       → link_common::handle_sleep_command()
+          - handle_killdate_command()    → link_common::handle_killdate_command()
+          - split_first()               → link_common::split_first()
+          - download_file()             → link_common::download_file()
+          - upload_file()               → link_common::upload_file()
+          - should_exit()               → link_common::should_exit()
+          - Atomics SLEEP/JITTER/KILL   → link_common (module state.rs)
+          Le module common devra exposer les setters/getters pour les atomics.
+          Fichiers : links/common/src/lib.rs (ou sous-modules),
+                     links/linux/src/stdlib.rs, links/windows/src/stdlib.rs,
+                     links/osx/src/stdlib.rs
+
+[ ] 0.5.3 EXTRAIRE la logique de dispatch commune
+          Les commandes cd, pwd, ls, pid, whoami, shell, sleep, killdate,
+          download, upload sont les mêmes sur Linux/OSX.
+          Solution KISS : un fn dispatch_common() dans link-common qui
+          retourne Option<String>. Si None, l'implant platform-specific
+          gère la commande.
+          Fichiers : links/common/src/dispatch.rs (nouveau)
+
+── Bugs fonctionnels ──────────────────────────────────────────────────────────
+
+[ ] 0.5.4 CORRIGER la fenêtre console Windows sur tasklist/netstat
+          list_processes() et list_network_connections() dans
+          links/windows/src/stdlib.rs lancent Command::new("tasklist")
+          et Command::new("netstat") SANS le flag CREATE_NO_WINDOW.
+          → Visible sur le desktop de la victime = détection immédiate.
+          Solution : Ajouter le trait CommandExt + creation_flags(0x0800_0000)
+          comme c'est déjà fait dans shell_exec().
+          Pattern KISS : extraire un helper fn silent_command(prog, args)
+          qui applique le flag automatiquement.
+          Fichier : links/windows/src/stdlib.rs
+
+[ ] 0.5.5 CORRIGER le conflit ps/powershell dans le CLI
+          Dans cli.rs, interact(), le match "ps" est mappé sur powershell :
+            "powershell" | "ps" => { ... format!("powershell ...") }
+          Mais l'implant comprend "ps" comme process listing.
+          Solution : Supprimer "ps" comme alias de powershell.
+          Garder uniquement "powershell" pour PowerShell.
+          Ajouter "ps" comme commande qui envoie "ps" à l'implant.
+          Fichier : server/src/cli.rs
+
+[ ] 0.5.6 ÉCRIRE les fichiers téléchargés sur disque (serveur)
+          download_file() côté implant renvoie "FILE:<path>:<base64>".
+          routes.rs parse correctement et stocke dans task.file_content,
+          mais le fichier n'est JAMAIS écrit sur le filesystem du serveur.
+          L'opérateur n'a aucun moyen de récupérer le fichier.
+          Solution :
+          - Créer un répertoire downloads/<link_name>/ dans output_dir()
+          - Quand parse_file_response() réussit, décoder le base64 et
+            écrire dans downloads/<link_name>/<filename>
+          - Afficher le chemin local dans le message UI
+          Fichiers : server/src/routes.rs, éventuellement server/src/files.rs
+
+── Robustesse serveur ─────────────────────────────────────────────────────────
+
+[ ] 0.5.7 SIMPLIFIER le lock management dans stage3_handler
+          stage3_handler() dans routes.rs acquiert/relâche le Mutex
+          4 à 5 fois dans un seul appel HTTP. C'est fragile et
+          difficile à auditer.
+          Solution : Extraire la logique dans Links::process_callback()
+          qui prend le body + x_request_id et retourne un TaskResponse.
+          Un seul lock dans le handler.
+          Alternative KISS : au minimum, regrouper les opérations
+          pour réduire à 2 acquisitions max (submit output + get next).
+          Fichier : server/src/routes.rs, server/src/links.rs
+
+[ ] 0.5.8 VALIDER les inputs RegisterRequest
+          Aucune validation des champs reçus à l'enregistrement.
+          Un implant malveillant ou un fuzzer peut envoyer des strings
+          de plusieurs Mo → OOM sur le serveur.
+          Solution KISS : tronquer chaque champ à une taille raisonnable
+          (username: 256, hostname: 256, ip: 45, platform: 64).
+          Fichier : server/src/routes.rs (stage2_handler)
+
+[ ] 0.5.9 CONFIGURER actix-web payload limits
+          Par défaut, actix-web accepte des body JSON jusqu'à 256 KB.
+          C'est probablement suffisant mais doit être explicite.
+          Ajouter web::JsonConfig::default().limit(65536) dans App::new().
+          Fichier : server/src/server.rs
 
 
 ================================================================================
  SPRINT 1 — SÉCURITÉ FONDAMENTALE (P0, ~2 semaines)
 ================================================================================
-Sans ce sprint, Linky n'est pas utilisable en engagement. C'est le MVP minimum.
+Sans ce sprint, Linky n'est pas utilisable en engagement.
 
 ── Cryptographie ──────────────────────────────────────────────────────────────
 
@@ -98,6 +173,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement. C'est le MVP minimum.
          - Injecté via build.rs comme env var CARGO : IMPLANT_SECRET
          - Le serveur stocke le secret dans la struct Link au register
          - L'implant dérive sa clé avec derive_key(IMPLANT_SECRET, salt)
+         Note : nécessite que 0.5.2 soit fait pour centraliser derive_key.
          Fichiers : server/src/generate.rs, links/*/build.rs,
                     links/common/src/lib.rs
 
@@ -144,6 +220,7 @@ Rendre l'implant discret sur un réseau défendu.
          - C2_ROUTE_STAGE1, C2_ROUTE_STAGE2, C2_ROUTE_STAGE3
          Injectés via build.rs, utilisés comme const dans l'implant.
          Le serveur doit aussi lire ces valeurs (config file ou env).
+         Prérequis : 0.5.2 (factorisation common)
          Fichiers : links/*/build.rs, server/src/routes.rs,
                     server/src/generate.rs
 
@@ -158,6 +235,8 @@ Rendre l'implant discret sur un réseau défendu.
          panic = "abort"
          strip = true
          Objectif : < 2 MB pour l'implant Linux (actuellement ~8 MB).
+         Note : peut se faire dans le workspace Cargo.toml racine avec
+         des profils par package.
 
 ── Évasion Windows (le strict minimum) ────────────────────────────────────────
 
@@ -206,7 +285,7 @@ Features nécessaires pour un engagement réel simple.
 
 [ ] 3.4  COMMANDE "env" — VARIABLES D'ENVIRONNEMENT
          std::env::vars() — trivial, cross-platform.
-         Fichiers : links/*/src/stdlib.rs
+         Fichiers : links/*/src/stdlib.rs (ou link-common après 0.5.3)
 
 ── Serveur ────────────────────────────────────────────────────────────────────
 
@@ -243,14 +322,26 @@ Features nécessaires pour un engagement réel simple.
 
 [ ] 4.3  CI/CD COMPLET
          Le .github/workflows/ci.yml existe mais manque :
-         - cargo audit
-         - cargo test --workspace (pas juste -p linky)
+         - cargo audit (ajouter advisory-db)
+         - cargo test --workspace (actuellement seulement -p linky)
          - Build multi-target en release (vérifier que ça link)
+         - Vérification taille binaire (seuil d'alerte si > X MB)
 
 [ ] 4.4  FACTORISER LE CODE OSX
-         links/osx/src/stdlib.rs ne partage pas link-common.
-         Aligner sur le pattern Linux/Windows : utiliser les types
-         et fonctions de link-common.
+         Sera déjà fait via 0.5.1 + 0.5.2 + 0.5.3.
+         Ce qui restera : aligner les features OSX (jitter, killdate,
+         file ops, encryption) sur Linux/Windows.
+         Avec le refactoring common, c'est principalement du câblage.
+         Fichier : links/osx/src/stdlib.rs
+
+[ ] 4.5  TESTS UNITAIRES POUR link-common (NOUVEAU)
+         Tester les fonctions factorisées :
+         - encrypt_config / decrypt_config (roundtrip)
+         - derive_key (vecteurs de test connus)
+         - split_first (edge cases : string vide, pas d'espace)
+         - sleep_with_jitter (ne panic pas avec jitter=100)
+         - handle_sleep_command / handle_killdate_command (parsing)
+         Fichier : links/common/src/lib.rs (#[cfg(test)] mod tests)
 
 
 ================================================================================
@@ -311,6 +402,16 @@ Ces items sont documentés mais ne font PAS partie du MVP.
 
 [ ] B.23 LATERAL MOVEMENT (PSExec-like via SMB)
 
+[ ] B.24 GRACEFUL SHUTDOWN du serveur (NOUVEAU)
+         main.rs utilise std::process::exit(0) — les threads sont tués
+         sans cleanup. Implémenter un shutdown propre via tokio signal
+         ou un channel.
+
+[ ] B.25 PERSISTANCE STATE SERVEUR (NOUVEAU)
+         Les links/tasks sont en mémoire. Un restart = tout perdu.
+         KISS : sérialiser l'état dans un fichier JSON au shutdown
+         et le recharger au démarrage. Pas de SQLite pour le MVP.
+
 ── P3 — Vision long terme ─────────────────────────────────────────────────────
 
 [ ] C.1  BASE DE DONNÉES SQLite (remplacer la mémoire)
@@ -348,6 +449,7 @@ Ces items sont documentés mais ne font PAS partie du MVP.
 [✅] Commande "sleep" côté serveur
 [✅] Factorisation partielle via link-common
 [✅] Remplacement atty par std::io::IsTerminal
+[✅] Sprint 0 complet (nettoyage code mort, thiserror/anyhow, etc.)
 
 
 ================================================================================
@@ -358,17 +460,56 @@ Ces items sont documentés mais ne font PAS partie du MVP.
       task.upload_path dans link_loop() — la commande est envoyée comme
       "upload <remote_path>" sans le contenu base64.
       FIX : lire task.upload/task.upload_path et les passer à dispatch().
-
-[BUG] Linux netstat: hex_to_ip() traite l'IP en big-endian mais
-      /proc/net/tcp stocke en little-endian → IPs inversées.
-      CORRIGÉ dans la version actuelle (rev() ajouté).
-
-[BUG] Windows info: uptime calculait time_since(UNIX_EPOCH) au lieu de
-      l'uptime réel. CORRIGÉ via PowerShell Get-CimInstance.
+      STATUS : PARTIELLEMENT CORRIGÉ — le code de link_loop() construit
+      maintenant la commande "upload <content> <path>" mais le parsing
+      reste fragile (split sur le premier espace).
 
 [BUG] Linux info: get_interface_ip() utilise /proc/net/fib_trie mais
       la logique de parsing est fragile — retourne parfois l'IP d'une
-      mauvaise interface.
+      mauvaise interface. Le paramètre `interface` n'est d'ailleurs
+      jamais utilisé dans la logique de filtrage.
+
+[BUG] File download côté serveur : le contenu base64 est stocké dans
+      task.file_content mais n'est jamais écrit sur disque. L'opérateur
+      ne peut pas récupérer les fichiers téléchargés.
+      → Voir item 0.5.6
+
+[BUG] Windows: list_processes() et list_network_connections() n'utilisent
+      pas CREATE_NO_WINDOW — fenêtre console visible sur le desktop.
+      → Voir item 0.5.4
+
+[BUG] CLI: "ps" est un alias de powershell au lieu de process listing.
+      → Voir item 0.5.5
+
+[BUG-MINEUR] OSX: implant sans encryption, jitter, file ops, ou kill date.
+      → Sera résolu par 0.5.1 + 0.5.2 + 4.4
+
+[BUG-MINEUR] links counter dans Links::add_link() n'est pas persisté.
+      Après restart du serveur, les noms recommencent à link-1.
+      Pas bloquant pour le MVP, mais risque de confusion en engagement.
+
+
+================================================================================
+ ORDRE D'EXÉCUTION RECOMMANDÉ
+================================================================================
+
+La séquence optimale pour minimiser les re-travaux :
+
+  1. Sprint 0.5.1 (OSX → link-common)     ← débloque la factorisation
+  2. Sprint 0.5.2 (factoriser Linux/Win)   ← réduit ~400 LOC de duplication
+  3. Sprint 0.5.3 (dispatch commun)        ← optionnel mais réduit encore
+  4. Sprint 0.5.4-0.5.9 (bugs + robustesse) ← en parallèle, indépendants
+  5. Sprint 1.1 (clé par implant)          ← fondation crypto
+  6. Sprint 1.2 (chiffrement payload)      ← dépend de 1.1
+  7. Sprint 1.3 (obfuscation strings)      ← indépendant
+  8. Sprint 1.4 (zeroize)                  ← rapide, indépendant
+  9. Sprint 2.2 (taille binaire)           ← rapide, gros impact
+  10. Sprint 4.1-4.3 (tests + CI)          ← valider tout ce qui précède
+  11. Sprint 2.1 (profils malléables)      ← dépend de 0.5.2
+  12. Sprint 2.3-2.5 (évasion Windows)     ← complexe, après stabilisation
+  13. Sprint 3.x (post-exploitation)       ← features additionnelles
+
+Estimation totale MVP : ~6-8 semaines de travail effectif.
 
 
 ================================================================================
