@@ -1,8 +1,7 @@
 use link_common::{
-    build_client, decrypt_config, derive_key,
-    dispatch::dispatch_common,
-    get_jitter_percent, get_sleep_seconds, should_exit, sleep, sleep_with_jitter,
-    CallbackRequest, RegisterRequest, TaskResponse,
+    build_client, decrypt_config, derive_key, dispatch::dispatch_common, get_jitter_percent,
+    get_sleep_seconds, should_exit, sleep, sleep_with_jitter, CallbackRequest, RegisterRequest,
+    TaskResponse,
 };
 use std::env;
 use std::process::Command;
@@ -312,7 +311,8 @@ fn list_processes() -> String {
                                     process_pid = p;
                                 }
                             } else if line.starts_with("PPid:") {
-                                if let Ok(pp) = line.split(':').nth(1).unwrap_or("").trim().parse() {
+                                if let Ok(pp) = line.split(':').nth(1).unwrap_or("").trim().parse()
+                                {
                                     process_ppid = pp;
                                 }
                             } else if line.starts_with("Uid:") {
@@ -454,11 +454,7 @@ fn get_process_from_inode(inode: &str) -> String {
                                         for line in status.lines() {
                                             if line.starts_with("Name:") {
                                                 if let Some(name) = line.split(':').nth(1) {
-                                                    return format!(
-                                                        "{}[{}]",
-                                                        pid_str,
-                                                        name.trim()
-                                                    );
+                                                    return format!("{}[{}]", pid_str, name.trim());
                                                 }
                                             }
                                         }

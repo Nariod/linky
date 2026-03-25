@@ -142,7 +142,11 @@ pub fn set_jitter_percent(percent: u32) {
 
 pub fn get_kill_date() -> Option<i64> {
     let v = KILL_DATE.load(Ordering::Relaxed);
-    if v == i64::MIN { None } else { Some(v) }
+    if v == i64::MIN {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 pub fn set_kill_date(timestamp: Option<i64>) {

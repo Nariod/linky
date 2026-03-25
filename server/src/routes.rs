@@ -120,8 +120,7 @@ fn save_download(link_name: &str, remote_path: &str, b64_content: &str) -> Resul
         .map_err(|e| format!("[-] Failed to decode file content: {}", e))?;
 
     let dest = dest_dir.join(&filename);
-    std::fs::write(&dest, &data)
-        .map_err(|e| format!("[-] Failed to write file: {}", e))?;
+    std::fs::write(&dest, &data).map_err(|e| format!("[-] Failed to write file: {}", e))?;
 
     Ok(dest)
 }
@@ -258,7 +257,8 @@ pub async fn stage3_handler(
                 if is_download && body.q.starts_with("FILE:") {
                     // Save the file to disk; store path in task output.
                     if let Some((file_path, file_content)) = parse_file_response(&body.q) {
-                        let display_msg = match save_download(&link_name, &file_path, &file_content) {
+                        let display_msg = match save_download(&link_name, &file_path, &file_content)
+                        {
                             Ok(dest) => {
                                 let msg = format!("[+] File saved to {}", dest.display());
                                 if let Some(link) = links.get_link_mut(link_id) {
@@ -303,7 +303,9 @@ pub async fn stage3_handler(
         crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
         tracing::info!(
             "\n{}\n{}\n{}",
-            format!("╔{}{}╗", header_text, "═".repeat(pad)).cyan().bold(),
+            format!("╔{}{}╗", header_text, "═".repeat(pad))
+                .cyan()
+                .bold(),
             output,
             format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold(),
         );

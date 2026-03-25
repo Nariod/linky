@@ -1,8 +1,7 @@
 use link_common::{
-    build_client, decrypt_config, derive_key,
-    dispatch::dispatch_common,
-    get_jitter_percent, get_sleep_seconds, should_exit, sleep, sleep_with_jitter,
-    CallbackRequest, RegisterRequest, TaskResponse,
+    build_client, decrypt_config, derive_key, dispatch::dispatch_common, get_jitter_percent,
+    get_sleep_seconds, should_exit, sleep, sleep_with_jitter, CallbackRequest, RegisterRequest,
+    TaskResponse,
 };
 use std::env;
 use std::process::Command;
