@@ -1555,10 +1555,16 @@ dependencies = [
 name = "link-osx"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "base64",
+ "chrono",
+ "hex",
+ "link-common",
+ "rand 0.8.5",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

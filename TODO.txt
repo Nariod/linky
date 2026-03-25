@@ -1,7 +1,7 @@
 ================================================================================
  LINKY C2 FRAMEWORK — TODO / ROADMAP
  Approche KISS · MVP · Idiomatic Rust
- Mis à jour le 2026-03-24
+ Mis à jour le 2026-03-25 (revue complète du code)
 ================================================================================
 
 PHILOSOPHIE
@@ -37,55 +37,80 @@ Objectif MVP : atteindre ~50% — suffisant pour des engagements simples.
 
 
 ================================================================================
- SPRINT 0 — NETTOYAGE & DETTE TECHNIQUE (P0, ~3 jours)
+ SPRINT 0 — NETTOYAGE & DETTE TECHNIQUE (P0, ~3 jours) ✅ COMPLÉTÉ
 ================================================================================
-Tout ce sprint est du code à supprimer ou corriger, pas à écrire.
 
-[✅] 0.1  SUPPRIMER le répertoire src/ racine
-         src/lib.rs, src/main.rs, src/c2/, src/server/, src/utils/, src/implants/
-         C'est du code legacy mort avec du XOR et une clé hardcodée
-         "default-encryption-key-12345". Confusion majeure pour les contributeurs.
-
+[✅] 0.1  SUPPRIMER le répertoire src/ racine (code legacy mort)
 [✅] 0.2  SUPPRIMER ou réécrire server/tests/basic_tests.rs
-         + server/tests/c2/mod.rs + server/tests/utils/mod.rs
-         Ils testent le code legacy de src/ et ne compilent pas.
-
 [✅] 0.3  SUPPRIMER examples/simple_demo.rs
-         Importe "linky::{c2::C2Config, ...}" du code legacy.
-         → Remplacer par un script curl documenté dans le README.
-
 [✅] 0.4  RETIRER Cargo.lock du .dockerignore
-         Le lock file DOIT être versionné pour les builds reproductibles.
-
 [✅] 0.5  AJOUTER thiserror + anyhow au serveur
-         Remplacer les .unwrap()/.expect()/eprintln! par un type d'erreur
-         propre. Les crates sont déjà dans Cargo.toml mais non utilisés.
-         → Créer server/src/error.rs avec #[derive(thiserror::Error)].
-
 [✅] 0.6  REMPLACER static mut restants dans les implants
-         links/osx/src/stdlib.rs utilise encore sleep(5) fixe sans
-         atomiques. Aligner sur le pattern AtomicU64 de linux/windows.
-
 [✅] 0.7  CORRIGER chrono::DateTime::from_timestamp() déprécié
-         → Utiliser from_timestamp_opt() dans handle_killdate_command().
-
 [✅] 0.8  SIMPLIFIER les I/O fichiers dans les implants
-         download_file(): std::fs::read() au lieu de File::open + read_to_end
-         upload_file(): std::fs::write() au lieu de File::create + write_all
-         (Déjà fait dans Linux, vérifier Windows)
-
 [✅] 0.9  NETTOYER la branche morte dans generate.rs
-         Condition `if target == "x86_64-unknown-linux-gnu"` jamais vraie.
+[✅] 0.10 std::io::IsTerminal au lieu de atty
+[✅] 0.11 Atomiques pour sleep/jitter/killdate
 
-[✅] 0.10 std::io::IsTerminal au lieu de atty (déjà corrigé)
 
-[✅] 0.11 Atomiques pour sleep/jitter/killdate (déjà corrigé Linux/Windows)
+================================================================================
+ SPRINT 0.5 — DETTE TECHNIQUE DÉCOUVERTE (P0, ~3-4 jours) ✅ COMPLÉTÉ
+================================================================================
+Issues découvertes lors de la revue du 2026-03-25. Résolues le 2026-03-25.
+
+── Factorisation du code ──────────────────────────────────────────────────────
+
+[✅] 0.5.1 MIGRER l'implant OSX vers link-common
+           links/osx/Cargo.toml : ajout link-common + rand/chrono/aes-gcm/sha2/hex
+           links/osx/src/stdlib.rs : suppression doublons, import link-common,
+           ajout chiffrement CALLBACK, sleep_with_jitter, killdate, dispatch_common.
+
+[✅] 0.5.2 FACTORISER les fonctions partagées Linux/Windows → link-common
+           Déplacé dans links/common/src/lib.rs :
+           sleep_with_jitter, handle_sleep_command, handle_killdate_command,
+           split_first, download_file, upload_file, should_exit,
+           Atomics SLEEP/JITTER/KILL + getters/setters publics.
+           linux/stdlib.rs et windows/stdlib.rs purgés des doublons (~200 LOC).
+
+[✅] 0.5.3 EXTRAIRE la logique de dispatch commune
+           Créé links/common/src/dispatch.rs : dispatch_common() retourne
+           Option<String> pour cd, pwd, ls, pid, sleep, killdate, download, upload.
+           Les 3 implants (linux, windows, osx) l'utilisent en premier appel.
+
+── Bugs fonctionnels ──────────────────────────────────────────────────────────
+
+[✅] 0.5.4 CORRIGER la fenêtre console Windows sur tasklist/netstat
+           Extrait fn silent_command(prog, args) avec creation_flags(0x0800_0000).
+           list_processes() et list_network_connections() utilisent silent_command.
+
+[✅] 0.5.5 CORRIGER le conflit ps/powershell dans le CLI
+           "ps" retiré de l'alias powershell dans cli.rs.
+           "ps" → envoie "ps" à l'implant (process listing).
+           "powershell" reste seul pour PowerShell.
+
+[✅] 0.5.6 ÉCRIRE les fichiers téléchargés sur disque (serveur)
+           save_download() dans routes.rs : décode base64, écrit dans
+           downloads/<link_name>/<filename>, affiche le chemin dans l'UI.
+
+── Robustesse serveur ─────────────────────────────────────────────────────────
+
+[✅] 0.5.7 SIMPLIFIER le lock management dans stage3_handler
+           Réduit de 5 à 3 acquisitions de Mutex (lock 1 : find link_id,
+           lock 2 : process output + complete_task, lock 3 : update_checkin
+           + get_next_task). UI printing hors lock.
+
+[✅] 0.5.8 VALIDER les inputs RegisterRequest
+           truncate_field() dans stage2_handler :
+           username/hostname → 256, ip → 45, platform → 64.
+
+[✅] 0.5.9 CONFIGURER actix-web payload limits
+           web::JsonConfig::default().limit(65_536) ajouté dans server.rs.
 
 
 ================================================================================
  SPRINT 1 — SÉCURITÉ FONDAMENTALE (P0, ~2 semaines)
 ================================================================================
-Sans ce sprint, Linky n'est pas utilisable en engagement. C'est le MVP minimum.
+Sans ce sprint, Linky n'est pas utilisable en engagement.
 
 ── Cryptographie ──────────────────────────────────────────────────────────────
 
@@ -98,6 +123,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement. C'est le MVP minimum.
          - Injecté via build.rs comme env var CARGO : IMPLANT_SECRET
          - Le serveur stocke le secret dans la struct Link au register
          - L'implant dérive sa clé avec derive_key(IMPLANT_SECRET, salt)
+         Note : nécessite que 0.5.2 soit fait pour centraliser derive_key.
          Fichiers : server/src/generate.rs, links/*/build.rs,
                     links/common/src/lib.rs
 
@@ -144,6 +170,7 @@ Rendre l'implant discret sur un réseau défendu.
          - C2_ROUTE_STAGE1, C2_ROUTE_STAGE2, C2_ROUTE_STAGE3
          Injectés via build.rs, utilisés comme const dans l'implant.
          Le serveur doit aussi lire ces valeurs (config file ou env).
+         Prérequis : 0.5.2 (factorisation common)
          Fichiers : links/*/build.rs, server/src/routes.rs,
                     server/src/generate.rs
 
@@ -158,6 +185,8 @@ Rendre l'implant discret sur un réseau défendu.
          panic = "abort"
          strip = true
          Objectif : < 2 MB pour l'implant Linux (actuellement ~8 MB).
+         Note : peut se faire dans le workspace Cargo.toml racine avec
+         des profils par package.
 
 ── Évasion Windows (le strict minimum) ────────────────────────────────────────
 
@@ -206,7 +235,7 @@ Features nécessaires pour un engagement réel simple.
 
 [ ] 3.4  COMMANDE "env" — VARIABLES D'ENVIRONNEMENT
          std::env::vars() — trivial, cross-platform.
-         Fichiers : links/*/src/stdlib.rs
+         Fichiers : links/*/src/stdlib.rs (ou link-common après 0.5.3)
 
 ── Serveur ────────────────────────────────────────────────────────────────────
 
@@ -243,14 +272,26 @@ Features nécessaires pour un engagement réel simple.
 
 [ ] 4.3  CI/CD COMPLET
          Le .github/workflows/ci.yml existe mais manque :
-         - cargo audit
-         - cargo test --workspace (pas juste -p linky)
+         - cargo audit (ajouter advisory-db)
+         - cargo test --workspace (actuellement seulement -p linky)
          - Build multi-target en release (vérifier que ça link)
+         - Vérification taille binaire (seuil d'alerte si > X MB)
 
 [ ] 4.4  FACTORISER LE CODE OSX
-         links/osx/src/stdlib.rs ne partage pas link-common.
-         Aligner sur le pattern Linux/Windows : utiliser les types
-         et fonctions de link-common.
+         Sera déjà fait via 0.5.1 + 0.5.2 + 0.5.3.
+         Ce qui restera : aligner les features OSX (jitter, killdate,
+         file ops, encryption) sur Linux/Windows.
+         Avec le refactoring common, c'est principalement du câblage.
+         Fichier : links/osx/src/stdlib.rs
+
+[ ] 4.5  TESTS UNITAIRES POUR link-common (NOUVEAU)
+         Tester les fonctions factorisées :
+         - encrypt_config / decrypt_config (roundtrip)
+         - derive_key (vecteurs de test connus)
+         - split_first (edge cases : string vide, pas d'espace)
+         - sleep_with_jitter (ne panic pas avec jitter=100)
+         - handle_sleep_command / handle_killdate_command (parsing)
+         Fichier : links/common/src/lib.rs (#[cfg(test)] mod tests)
 
 
 ================================================================================
@@ -311,6 +352,16 @@ Ces items sont documentés mais ne font PAS partie du MVP.
 
 [ ] B.23 LATERAL MOVEMENT (PSExec-like via SMB)
 
+[ ] B.24 GRACEFUL SHUTDOWN du serveur (NOUVEAU)
+         main.rs utilise std::process::exit(0) — les threads sont tués
+         sans cleanup. Implémenter un shutdown propre via tokio signal
+         ou un channel.
+
+[ ] B.25 PERSISTANCE STATE SERVEUR (NOUVEAU)
+         Les links/tasks sont en mémoire. Un restart = tout perdu.
+         KISS : sérialiser l'état dans un fichier JSON au shutdown
+         et le recharger au démarrage. Pas de SQLite pour le MVP.
+
 ── P3 — Vision long terme ─────────────────────────────────────────────────────
 
 [ ] C.1  BASE DE DONNÉES SQLite (remplacer la mémoire)
@@ -348,6 +399,7 @@ Ces items sont documentés mais ne font PAS partie du MVP.
 [✅] Commande "sleep" côté serveur
 [✅] Factorisation partielle via link-common
 [✅] Remplacement atty par std::io::IsTerminal
+[✅] Sprint 0 complet (nettoyage code mort, thiserror/anyhow, etc.)
 
 
 ================================================================================
@@ -358,17 +410,53 @@ Ces items sont documentés mais ne font PAS partie du MVP.
       task.upload_path dans link_loop() — la commande est envoyée comme
       "upload <remote_path>" sans le contenu base64.
       FIX : lire task.upload/task.upload_path et les passer à dispatch().
-
-[BUG] Linux netstat: hex_to_ip() traite l'IP en big-endian mais
-      /proc/net/tcp stocke en little-endian → IPs inversées.
-      CORRIGÉ dans la version actuelle (rev() ajouté).
-
-[BUG] Windows info: uptime calculait time_since(UNIX_EPOCH) au lieu de
-      l'uptime réel. CORRIGÉ via PowerShell Get-CimInstance.
+      STATUS : PARTIELLEMENT CORRIGÉ — le code de link_loop() construit
+      maintenant la commande "upload <content> <path>" mais le parsing
+      reste fragile (split sur le premier espace).
 
 [BUG] Linux info: get_interface_ip() utilise /proc/net/fib_trie mais
       la logique de parsing est fragile — retourne parfois l'IP d'une
-      mauvaise interface.
+      mauvaise interface. Le paramètre `interface` n'est d'ailleurs
+      jamais utilisé dans la logique de filtrage.
+
+[FIXED] File download côté serveur : save_download() écrit maintenant les
+        fichiers dans downloads/<link_name>/<filename>. → 0.5.6
+
+[FIXED] Windows: list_processes() et list_network_connections() utilisent
+        maintenant silent_command() avec CREATE_NO_WINDOW. → 0.5.4
+
+[FIXED] CLI: "ps" envoie maintenant "ps" à l'implant au lieu de lancer
+        powershell. → 0.5.5
+
+[BUG-MINEUR] OSX: implant sans encryption, jitter, file ops, ou kill date.
+      → Sera résolu par 0.5.1 + 0.5.2 + 4.4
+
+[BUG-MINEUR] links counter dans Links::add_link() n'est pas persisté.
+      Après restart du serveur, les noms recommencent à link-1.
+      Pas bloquant pour le MVP, mais risque de confusion en engagement.
+
+
+================================================================================
+ ORDRE D'EXÉCUTION RECOMMANDÉ
+================================================================================
+
+La séquence optimale pour minimiser les re-travaux :
+
+  1. Sprint 0.5.1 (OSX → link-common)     ← débloque la factorisation
+  2. Sprint 0.5.2 (factoriser Linux/Win)   ← réduit ~400 LOC de duplication
+  3. Sprint 0.5.3 (dispatch commun)        ← optionnel mais réduit encore
+  4. Sprint 0.5.4-0.5.9 (bugs + robustesse) ← en parallèle, indépendants
+  5. Sprint 1.1 (clé par implant)          ← fondation crypto
+  6. Sprint 1.2 (chiffrement payload)      ← dépend de 1.1
+  7. Sprint 1.3 (obfuscation strings)      ← indépendant
+  8. Sprint 1.4 (zeroize)                  ← rapide, indépendant
+  9. Sprint 2.2 (taille binaire)           ← rapide, gros impact
+  10. Sprint 4.1-4.3 (tests + CI)          ← valider tout ce qui précède
+  11. Sprint 2.1 (profils malléables)      ← dépend de 0.5.2
+  12. Sprint 2.3-2.5 (évasion Windows)     ← complexe, après stabilisation
+  13. Sprint 3.x (post-exploitation)       ← features additionnelles
+
+Estimation totale MVP : ~6-8 semaines de travail effectif.
 
 
 ================================================================================
