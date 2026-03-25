@@ -35,6 +35,8 @@ pub struct Link {
     #[allow(dead_code)]
     pub external_ip: String,
     pub pid: u32,
+    /// Per-implant secret for key derivation (hex-encoded 32 bytes)
+    pub secret: String,
     pub first_checkin: DateTime<Local>,
     pub last_checkin: DateTime<Local>,
     /// Changes on every check-in; used to correlate requests.
@@ -57,6 +59,7 @@ impl Links {
         external_ip: String,
         platform: String,
         pid: u32,
+        secret: String,
     ) -> &Link {
         let now = Local::now();
         self.counter += 1;
@@ -70,6 +73,7 @@ impl Links {
             internal_ip,
             external_ip,
             pid,
+            secret,
             first_checkin: now,
             last_checkin: now,
             x_request_id: Uuid::new_v4(),
@@ -239,6 +243,7 @@ mod tests {
             "1.2.3.4".into(),
             platform.into(),
             1234,
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
         );
         link.id
     }

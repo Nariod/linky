@@ -117,6 +117,9 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         return;
     }
 
+    // Generate a random 32-byte secret for this implant
+    let secret = hex::encode(rand::random::<[u8; 32]>());
+
     tracing::info!(
         "Building {} implant ({}) for {} …",
         output_name,
@@ -126,6 +129,7 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
 
     let result = Command::new("cargo")
         .env("CALLBACK", callback)
+        .env("IMPLANT_SECRET", &secret)
         .args(["build", "--release", "--target", target, "--quiet"])
         .current_dir(dir)
         .status();

