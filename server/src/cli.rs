@@ -221,7 +221,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                         }
                     }
                     "shell" => queue(links, link_id, line.clone(), line.clone()),
-                    "powershell" | "ps" => {
+                    "powershell" => {
                         if !is_windows(links, link_id) {
                             ui::print(&format!(
                                 "{} 'powershell' is a Windows-only command.",
@@ -236,6 +236,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                             );
                         }
                     }
+                    "ps" => queue(links, link_id, "ps".into(), line.clone()),
 
                     // ── Built-in navigation ─────────────────────────────
                     "cd" | "pwd" | "ls" | "whoami" | "pid" => {
@@ -394,7 +395,7 @@ fn print_link_help() {
     ui::print("  pid                      Process ID");
     ui::print("  ── Reconnaissance ───────────────────────────────────");
     ui::print("  info                     Detailed system information");
-    ui::print("  ps                       List running processes");
+    ui::print("  ps                       List running processes      (Linux/macOS: /proc, Windows: tasklist)");
     ui::print("  netstat                  List network connections");
     ui::print("  ── File transfer ────────────────────────────────────");
     ui::print("  download <path>          Download file from implant");

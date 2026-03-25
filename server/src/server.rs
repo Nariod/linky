@@ -11,9 +11,13 @@ pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> Result<()> {
     let tls_config = build_tls_config();
     let state = web::Data::new(AppState { links });
 
+    // 0.5.9 — explicit JSON payload limit (64 KB) to prevent OOM from oversized bodies.
+    let json_cfg = web::JsonConfig::default().limit(65_536);
+
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
+            .app_data(json_cfg.clone())
             .route("/", web::get().to(ok_handler))
             .route("/js", web::get().to(stage1_handler))
             .route("/static/register", web::post().to(stage2_handler))
