@@ -316,32 +316,24 @@ fn collect_system_info() -> String {
 }
 
 fn get_interface_ip(interface: &str) -> Option<String> {
-    use std::fs;
-
-    let operstate = fs::read_to_string(format!("/sys/class/net/{}/operstate", interface)).ok()?;
+    // Only report interfaces that are up.
+    let operstate =
+        std::fs::read_to_string(format!("/sys/class/net/{}/operstate", interface)).ok()?;
     if operstate.trim() != "up" {
         return None;
     }
 
-    let fib = fs::read_to_string("/proc/net/fib_trie").ok()?;
-    let mut prev_ip: Option<std::net::Ipv4Addr> = None;
-    for line in fib.lines() {
-        let trimmed = line.trim();
-        if trimmed.contains("LOCAL") && trimmed.starts_with("32") {
-            if let Some(ip) = prev_ip {
-                if !ip.is_loopback() && !ip.is_unspecified() {
-                    return Some(ip.to_string());
-                }
-            }
-        } else if let Ok(val) = trimmed
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .parse::<u32>()
-        {
-            prev_ip = Some(std::net::Ipv4Addr::from(val));
-        } else {
-            prev_ip = None;
+    // `ip addr show <iface>` filters to the exact interface, avoiding the
+    // fib_trie ambiguity where the interface name was never used in the lookup.
+    let output = Command::new("ip")
+        .args(["addr", "show", interface])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(rest) = line.trim().strip_prefix("inet ") {
+            // rest = "192.168.1.10/24 brd …"
+            return rest.split('/').next().map(|s| s.to_string());
         }
     }
     None

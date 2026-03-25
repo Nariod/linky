@@ -13,7 +13,8 @@ use links::Links;
 
 fn main() {
     // Initialize tracing subscriber with minimal output
-    let subscriber = tracing_subscriber::fmt().with_env_filter("off");
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".to_string()));
     subscriber.init();
 
     // rustls 0.23 requires an explicit CryptoProvider to be installed before any TLS usage.
