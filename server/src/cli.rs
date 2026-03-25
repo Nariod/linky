@@ -1,10 +1,11 @@
 use colored::Colorize;
+use chrono::Local;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-use crate::generate;
 use crate::links::{LinkStatus, Links};
+use crate::tasks::TaskStatus;
 use crate::ui;
 
 pub fn run(links: Arc<Mutex<Links>>) {
@@ -182,6 +183,9 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
             ui::print("    Type 'help' for commands, 'back' to return\n");
         }
     }
+    
+    // Display results of completed tasks (outside the initial lock)
+    show_completed_task_results(links, link_id);
 
     loop {
         let prompt = {
@@ -305,6 +309,23 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
             Err(e) => tracing::error!("readline: {}", e),
+        }
+    }
+}
+
+pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
+    let l = links.lock().unwrap();
+    if let Some(link) = l.get_link(link_id) {
+        for task in &link.tasks {
+            if task.status == TaskStatus::Completed && !task.output.is_empty() {
+                const OUTPUT_BOX_WIDTH: usize = 54;
+                let now = Local::now().format("%H:%M:%S");
+                let header_text = format!("═ {} · {} · {} ", link.name, task.cli_command, now);
+                let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+                ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
+                ui::print(&format!("║ {}", task.output));
+                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+            }
         }
     }
 }
