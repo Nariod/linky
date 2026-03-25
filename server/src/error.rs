@@ -8,12 +8,6 @@ pub enum LinkyError {
     #[error("build failed: {0}")]
     BuildFailed(String),
 
-    #[error("link not found: {0}")]
-    LinkNotFound(uuid::Uuid),
-
-    #[error("invalid request: {0}")]
-    InvalidRequest(String),
-
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -34,9 +28,6 @@ pub enum LinkyError {
 
     #[error("chrono error: {0}")]
     Chrono(#[from] chrono::format::ParseError),
-
-    #[error("unknown error")]
-    Unknown,
 }
 
 pub type Result<T> = std::result::Result<T, LinkyError>;

@@ -16,10 +16,6 @@ fn get_sleep_seconds() -> u64 {
     SLEEP_SECONDS.load(Ordering::Relaxed)
 }
 
-fn set_sleep_seconds(seconds: u64) {
-    SLEEP_SECONDS.store(seconds, Ordering::Relaxed);
-}
-
 // ── Wire types ───────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
