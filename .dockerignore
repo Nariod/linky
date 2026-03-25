@@ -1,4 +1,4 @@
-# Docker ignore file for Linky
+# podman ignore file for Linky
 
 # Git directory
 target/

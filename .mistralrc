@@ -1,6 +1,6 @@
 # Mistral Configuration for Linky C2 Framework
 # Rust idiomatic coding guidelines · KISS/MVP approach
-# Mis à jour 2026-03-24
+# Mis à jour 2026-03-25
 
 [project]
 name = "Linky C2 Framework"
@@ -18,165 +18,105 @@ Workspace Cargo avec 5 crates :
   - links/common/ → types wire partagés, client HTTP, crypto (AES-256-GCM)
   - links/linux/  → implant Linux (x86_64-unknown-linux-musl)
   - links/windows/ → implant Windows (x86_64-pc-windows-gnu)
-  - links/osx/    → implant macOS (stub, à aligner sur linux/windows)
-
-Protocole C2 :
-  Stage 1: GET  /js              → Set-Cookie
-  Stage 2: POST /static/register → registration + initial x_request_id
-  Stage 3: POST /static/get      → polling loop (commandes + résultats)
 """
 
-# ── Rust Conventions ─────────────────────────────────────────────────────────
-
-[rust]
-edition = "2021"
-minimum_version = "1.70"
-
-idiomatic_rules = [
-    "snake_case fonctions/variables, PascalCase types/traits, SCREAMING_SNAKE_CASE constantes",
-    "Préférer &str à String quand possible",
-    "Result<T, E> pour la gestion d'erreur — jamais .unwrap() hors tests",
-    "thiserror pour les types d'erreur, anyhow pour la propagation rapide",
-    "Préférer les chaînes d'itérateurs aux boucles for",
-    "match plutôt que if-let chains",
-    "Documenter les items publics avec ///",
-    "cargo clippy --workspace -- -D warnings (zéro warning)",
-    "cargo fmt --all (rustfmt par défaut)",
-    "Chaque bloc unsafe DOIT avoir un commentaire // SAFETY:",
-    "Minimiser les dépendances — préférer la stdlib",
-    "Zeroize les buffers contenant des clés après usage",
-    "std::fs::read() / std::fs::write() au lieu de File::open + read_to_end",
-]
-
-# ── Commandes ────────────────────────────────────────────────────────────────
-
-[commands]
-# Build
-build_server = "cargo build --release -p linky"
-build_linux = "CALLBACK=127.0.0.1:8443 cargo build --release --target x86_64-unknown-linux-musl -p link-linux"
-build_windows = "CALLBACK=127.0.0.1:8443 cargo build --release --target x86_64-pc-windows-gnu -p link-windows"
-build_osx = "CALLBACK=127.0.0.1:8443 cargo build --release --target x86_64-apple-darwin -p link-osx"
-
-# Qualité
-check = "cargo clippy --workspace -- -D warnings"
-fmt = "cargo fmt --all"
-fmt_check = "cargo fmt --all -- --check"
-test = "cargo test --workspace"
-audit = "cargo audit"
-
-# Conteneur
-container_build = "podman build -t linky-c2 ."
-container_run = "podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2"
-
-# Nettoyage
-clean = "cargo clean"
-
-# ── Patterns de code ─────────────────────────────────────────────────────────
-
-[patterns]
-error_handling = """
-// Pattern d'erreur avec thiserror (serveur)
-#[derive(thiserror::Error, Debug)]
-pub enum LinkyError {
-    #[error("build failed: {0}")]
-    BuildFailed(String),
-    #[error("link not found: {0}")]
-    LinkNotFound(uuid::Uuid),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-}
-
-// Propagation avec anyhow (CLI, scripts)
-fn do_thing() -> anyhow::Result<()> {
-    let data = std::fs::read("file.txt")?;
-    Ok(())
-}
-"""
-
-iterator_chain = """
-// Préférer les itérateurs aux boucles
-let active_links: Vec<_> = links
-    .iter()
-    .filter(|l| l.status == LinkStatus::Active)
-    .map(|l| l.name.clone())
-    .collect();
-"""
-
-atomic_state = """
-// State partagé dans les implants (pas de static mut)
-use std::sync::atomic::{AtomicU64, Ordering};
-static SLEEP_SECONDS: AtomicU64 = AtomicU64::new(5);
-
-fn get_sleep() -> u64 { SLEEP_SECONDS.load(Ordering::Relaxed) }
-fn set_sleep(s: u64) { SLEEP_SECONDS.store(s, Ordering::Relaxed); }
-"""
-
-mutex_pattern = """
-// Pattern Mutex serveur — lock court, drop explicite si re-lock nécessaire
-{
-    let guard = data.links.lock().unwrap_or_else(|e| e.into_inner());
-    let link_id = guard.find_by_request_id(x_req_id).map(|l| l.id);
-    drop(guard);  // IMPORTANT : drop avant de re-locker
-    // ... utiliser link_id ...
-}
-"""
-
-# ── Règles de sécurité ──────────────────────────────────────────────────────
-
-[security]
-rules = [
-    "JAMAIS de clé ou secret hardcodé — les clés de test dans #[cfg(test)] uniquement",
-    "JAMAIS de .unwrap() sur des entrées réseau — toujours valider",
-    "JAMAIS de log des secrets, clés, ou payloads déchiffrés",
-    "Obfusquer les strings statiques sensibles dans les implants (UA, cookie, routes)",
-    "Zeroize les clés après usage (crate zeroize)",
-    "Lock Mutex le moins longtemps possible — risque de deadlock",
-    "danger_accept_invalid_certs(true) est intentionnel (self-signed TLS C2)",
-]
-
-# ── Bugs connus ──────────────────────────────────────────────────────────────
-
-[known_bugs]
-file_upload = "Implants ignorent task.upload/task.upload_path — contenu non transmis"
-linux_interface_ip = "get_interface_ip() parsing /proc/net/fib_trie fragile"
-osx_stub = "Implant macOS sans encryption, jitter, file ops, kill date"
-
-# ── Code review checklist ────────────────────────────────────────────────────
-
-[review]
-checklist = [
-    "Pas de .unwrap() hors tests — utiliser ? ou unwrap_or_else",
-    "Pas de unsafe sans commentaire // SAFETY:",
-    "Pas de println!() dans le serveur — utiliser ui::print*() ou tracing::*!()",
-    "Pas de static mut — utiliser des Atomics ou OnceLock",
-    "Pas de lock Mutex imbriqué — drop() explicite avant re-lock",
-    "cargo clippy --workspace -- -D warnings passe sans erreur",
-    "cargo fmt --all -- --check passe sans erreur",
-    "cargo test --workspace passe sans erreur",
-    "Les strings sensibles ne sont pas en clair dans les implants",
-    "Les clés sont zeroize après usage",
-    "Le code commun entre implants est dans links/common/",
-    "Les I/O fichiers utilisent std::fs::read()/write()",
-]
-
-# ── Priorités MVP ───────────────────────────────────────────────────────────
-
-[mvp_priorities]
-description = """
-Sprint 0 : Nettoyage code mort + thiserror/anyhow (~3 jours)
-Sprint 1 : Clé par implant + chiffrement payload + obfuscation strings (~2 semaines)
-Sprint 2 : Profils malléables + taille binaire + syscalls indirects (~2 semaines)
-Sprint 3 : Persistence + SOCKS proxy + logging opérationnel (~3 semaines)
-Sprint 4 : Tests d'intégration + CI + alignement macOS (~1 semaine)
-
-Voir TODO.txt pour le détail de chaque item.
-"""
-
-# ── Testing ──────────────────────────────────────────────────────────────────
+# ── Testing ─────────────────────────────────────────────────────────────────
 
 [testing]
-unit_tests = "cargo test --lib"
-integration_tests = "cargo test --test '*'"
-all_tests = "cargo test --workspace"
-naming = "test_<what>_<expected_behavior>"
-location = "Tests unitaires dans le même fichier (#[cfg(test)] mod tests)"
+# Commandes automatiques pour les tests
+auto_test_commands = [
+    "cargo check",
+    "cargo clippy",
+    "cargo test",
+    "cargo build --release",
+    "podman build -t linky-c2 ."
+]
+
+# Fichiers clés pour les tests
+key_test_files = [
+    "server/src/links.rs",
+    "server/src/tasks.rs", 
+    "server/src/cli.rs",
+    "server/src/routes.rs"
+]
+
+# Vérification de la fonctionnalité principale
+test_command_output_display = """
+Pour tester l'affichage des résultats de commandes:
+1. Démarrer le serveur: cargo run --release --bin linky
+2. Générer un implant: generate-linux 127.0.0.1:8443
+3. Exécuter des commandes: whoami, pwd, etc.
+4. Vérifier que les résultats s'affichent dans des boîtes formatées
+"""
+
+# ── Workflow ───────────────────────────────────────────────────────────────
+
+[workflow]
+# Étapes typiques de développement
+typical_steps = [
+    "Modifier le code dans server/src/",
+    "Vérifier avec: cargo check",
+    "Builder avec: cargo build --release",
+    "Tester avec: cargo run --release --bin linky",
+    "Builder podman: podman build -t linky-c2 .",
+    "Nettoyer avec: cargo clean"
+]
+
+# Commandes Makefile disponibles
+make_commands = [
+    "make build - Construction en release",
+    "make test - Tests unitaires", 
+    "make check - Vérifications (check + clippy)",
+    "make podman - Build podman",
+    "make test-full - Tous les tests",
+    "make clean - Nettoyage"
+]
+
+# ── Documentation ──────────────────────────────────────────────────────────
+
+[documentation]
+# Fichiers clés à comprendre
+key_files = {
+    "server/src/cli.rs": "Interface CLI principale et affichage des résultats",
+    "server/src/routes.rs": "Gestion des requêtes HTTP et communication implant",
+    "server/src/links.rs": "Gestion des liens/implants et système de tâches",
+    "server/src/tasks.rs": "Définition des tâches et statuts",
+    "Makefile": "Commandes rapides pour build et tests",
+    "test_linky.sh": "Script de test automatisé complet"
+}
+
+# Problèmes courants et solutions
+common_issues = {
+    "Module path conflicts": "Utiliser crate:: au lieu des chemins relatifs",
+    "Task completion not displaying": "Vérifier show_completed_task_results() dans cli.rs",
+    "Implant communication issues": "Vérifier les logs dans routes.rs autour de complete_task()",
+    "podman build problems": "Vérifier les permissions et le contexte de build"
+}
+
+# ── Conventions ─────────────────────────────────────────────────────────────
+
+[conventions]
+# Style de code
+code_style = [
+    "Utiliser rustfmt pour le formatage",
+    "Limiter les lignes à 100 caractères",
+    "Commentaires en français pour la documentation",
+    "Noms de variables et fonctions en snake_case",
+    "Types et traits en PascalCase"
+]
+
+# Gestion des erreurs
+error_handling = [
+    "Utiliser anyhow/thiserror pour les erreurs",
+    "Ne pas paniquer dans le code de production",
+    "Logger les erreurs avec tracing::error!",
+    "Retourner Result<T, E> pour les fonctions publiques"
+]
+
+# Tests
+testing = [
+    "Écrire des tests unitaires pour les fonctions critiques",
+    "Utiliser cargo test pour exécuter les tests",
+    "Vérifier la couverture avec tarpaulin si disponible",
+    "Tester les scénarios d'erreur"
+]

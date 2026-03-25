@@ -1,4 +1,4 @@
-# Dockerfile for Linky C2 Framework
+# podmanfile for Linky C2 Framework
 # Single-stage build: cargo is available at runtime for on-the-fly implant generation
 
 FROM rust:latest
