@@ -28,7 +28,7 @@ linky/                          ← workspace root (Cargo.toml resolver = "2")
 │   ├── linux/                  ← Implant Linux (crate: link-linux)
 │   ├── windows/                ← Implant Windows (crate: link-windows)
 │   └── osx/                    ← Implant macOS (crate: link-osx) — stub
-├── Dockerfile                  ← Build conteneurisé
+├── podmanfile                  ← Build conteneurisé
 ├── TODO.txt                    ← Roadmap détaillé (lire en premier)
 └── CLAUDE.md                   ← Ce fichier
 ```

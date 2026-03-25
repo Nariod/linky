@@ -67,14 +67,14 @@ fn check_prerequisites(target: &str) -> bool {
         tracing::error!("Fix: rustup target add {}", target);
         if target == "x86_64-apple-darwin" {
             tracing::error!("Note: macOS cross-compilation requires additional setup.");
-            tracing::error!("In Podman/Docker, you need to:");
+            tracing::error!("In Podman/podman, you need to:");
             tracing::error!("1. Install the macOS target: rustup target add x86_64-apple-darwin");
             tracing::error!("2. Install cross-compilation tools: apt-get install clang llvm lld");
             tracing::error!("3. Set up macOS SDK and environment variables");
             tracing::error!(
                 "4. Configure cross-compilation with: TARGET_CC=x86_64-apple-darwin20-clang"
             );
-            tracing::error!("This is complex and may not work in all Docker/Podman environments.");
+            tracing::error!("This is complex and may not work in all podman/Podman environments.");
             tracing::error!("Consider building macOS implants on a macOS host instead.");
         }
         return false;

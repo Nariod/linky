@@ -65,7 +65,7 @@ linky/
 │   ├── linux/              # Linux implant    → link-linux
 │   ├── windows/            # Windows implant  → link-windows.exe
 │   └── osx/                # macOS implant    → link-osx (stub)
-├── Dockerfile              # Single-stage with full Rust toolchain
+├── podmanfile              # Single-stage with full Rust toolchain
 ├── CLAUDE.md               # Instructions for Claude Code
 └── .mistralrc              # Instructions for Mistral Vibe
 ```
@@ -158,7 +158,7 @@ cargo build --release -p linky
 ./target/release/linky 0.0.0.0:8443
 ```
 
-### Docker/Podman
+### podman/Podman
 
 ```bash
 podman build -t linky-c2 .
@@ -211,6 +211,78 @@ See `TODO.txt` for the detailed task list.
 ## Security notice
 
 This tool is for **authorized** penetration testing engagements only. Do not use it against systems without explicit written permission.
+
+## Testing & Automation
+
+### Automated Testing
+
+Linky includes comprehensive automated testing:
+
+```bash
+# Run all tests (recommended)
+make test-full
+
+# Individual test commands
+make build      # Build in release mode
+make test       # Run unit tests
+make check      # Run cargo check + clippy
+make podman     # Build podman image
+make clean      # Clean build artifacts
+
+# Or use the complete test script
+./test_linky.sh
+```
+
+### Test Coverage
+
+- ✅ Code validation (`cargo check`)
+- ✅ Linting (`cargo clippy`)
+- ✅ Unit tests (`cargo test`)
+- ✅ Release build (`cargo build --release`)
+- ✅ podman build (`podman build -t linky-c2`)
+
+### Testing Command Output Display
+
+To verify the command output display functionality:
+
+1. Start the server: `cargo run --release --bin linky`
+2. Generate an implant: `generate-linux 127.0.0.1:8443`
+3. Execute commands: `whoami`, `pwd`, `info`
+4. Verify results display in formatted boxes:
+
+```
+╔═ link-1 · whoami · 14:38:23 ═════════════════════════════╗
+║ fedora@hostname
+╚═══════════════════════════════════════════════════════════════╝
+```
+
+## Configuration for AI Developers
+
+### Mistral AI Configuration
+
+The `.mistralrc` file contains:
+- Project overview and architecture
+- Automated test commands
+- Key files documentation
+- Development workflow
+- Coding conventions
+
+### Claude AI Configuration
+
+The `.claude/settings.local.json` file contains:
+- Structured project information
+- Testing guidelines
+- Common issues and debugging tips
+- Key features documentation
+
+### Key Files for AI Understanding
+
+| File | Purpose |
+|------|---------|
+| `server/src/cli.rs` | CLI interface and command result display |
+| `server/src/routes.rs` | HTTP request handling and implant communication |
+| `server/src/links.rs` | Link/implant management and task system |
+| `server/src/tasks.rs` | Task definitions and status management |
 
 ## License
 

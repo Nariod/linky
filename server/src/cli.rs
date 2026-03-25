@@ -1,10 +1,11 @@
+use chrono::Local;
 use colored::Colorize;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-use crate::generate;
 use crate::links::{LinkStatus, Links};
+use crate::tasks::TaskStatus;
 use crate::ui;
 
 pub fn run(links: Arc<Mutex<Links>>) {
@@ -28,14 +29,14 @@ pub fn run(links: Arc<Mutex<Links>>) {
                         if rest.is_empty() {
                             ui::print("Usage: generate <ip:port>");
                         } else {
-                            generate::generate_windows(rest);
+                            crate::generate::generate_windows(rest);
                         }
                     }
                     "generate-linux" => {
                         if rest.is_empty() {
                             ui::print("Usage: generate-linux <ip:port>");
                         } else {
-                            generate::generate_linux(rest);
+                            crate::generate::generate_linux(rest);
                         }
                     }
 
@@ -43,7 +44,7 @@ pub fn run(links: Arc<Mutex<Links>>) {
                         if rest.is_empty() {
                             ui::print("Usage: generate-osx <ip:port>");
                         } else {
-                            generate::generate_osx(rest);
+                            crate::generate::generate_osx(rest);
                         }
                     }
                     "help" => print_help(),
@@ -184,6 +185,9 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
     }
 
     loop {
+        // Display results of completed tasks before showing prompt
+        show_completed_task_results(links, link_id);
+
         let prompt = {
             let l = links.lock().unwrap();
             l.get_link(link_id)
@@ -305,6 +309,30 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
             }
             Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => break,
             Err(e) => tracing::error!("readline: {}", e),
+        }
+    }
+}
+
+pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
+    let l = links.lock().unwrap();
+    if let Some(link) = l.get_link(link_id) {
+        for task in &link.tasks {
+            if task.status == TaskStatus::Completed {
+                const OUTPUT_BOX_WIDTH: usize = 54;
+                let now = Local::now().format("%H:%M:%S");
+                let header_text = format!("═ {} · {} · {} ", link.name, task.cli_command, now);
+                let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+
+                if task.output.is_empty() {
+                    ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
+                    ui::print(&format!("║ {} (no output)", task.cli_command));
+                    ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+                } else {
+                    ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
+                    ui::print(&format!("║ {}", task.output));
+                    ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+                }
+            }
         }
     }
 }

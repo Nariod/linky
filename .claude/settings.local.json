@@ -1,8 +1,109 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(cargo clippy:*)",
-      "Bash(cargo test:*)"
+  "project": {
+    "name": "Linky C2 Framework",
+    "language": "Rust",
+    "framework": "Actix-web",
+    "purpose": "Command and Control framework for security testing",
+    "version": "0.1.0",
+    "last_updated": "2026-03-25"
+  },
+  "testing": {
+    "auto_test_commands": [
+      "cargo check",
+      "cargo clippy",
+      "cargo test",
+      "cargo build --release",
+      "podman build -t linky-c2 ."
+    ],
+    "unit_tests": {
+      "command": "cargo test",
+      "focus": ["server/src/links.rs", "server/src/tasks.rs"]
+    },
+    "integration_tests": {
+      "command": "cargo test --test integration",
+      "requires": "podman container running"
+    },
+    "quality_checks": [
+      "cargo clippy",
+      "cargo fmt --check",
+      "cargo build --release"
+    ],
+    "test_command_output": {
+      "description": "Test the command output display functionality",
+      "steps": [
+        "Start server: cargo run --release --bin linky",
+        "Generate implant: generate-linux 127.0.0.1:8443",
+        "Execute commands: whoami, pwd, info",
+        "Verify results display in formatted boxes"
+      ]
+    }
+  },
+  "key_features": [
+    "Implant management (Windows/Linux/macOS)",
+    "Command execution and result display",
+    "File transfer capabilities",
+    "Encrypted communication",
+    "Interactive CLI interface"
+  ],
+  "documentation": {
+    "key_files": {
+      "server/src/cli.rs": "Main CLI interface and command result display",
+      "server/src/routes.rs": "HTTP request handling and implant communication",
+      "server/src/links.rs": "Link/implant management and task system",
+      "server/src/tasks.rs": "Task definitions and status management",
+      "Makefile": "Quick commands for build and tests",
+      "test_linky.sh": "Complete automated test script"
+    },
+    "common_issues": {
+      "module_path_conflicts": "Use crate:: instead of relative paths",
+      "task_completion_not_displaying": "Check show_completed_task_results() in cli.rs",
+      "implant_communication": "Verify logs in routes.rs around complete_task()",
+      "podman_build": "Check permissions and build context"
+    },
+    "debugging_tips": [
+      "Check task status with: links.get_link(link_id).tasks",
+      "Verify implant responses in routes.rs",
+      "Use tracing::info! for debug logging",
+      "Test with mock implants first"
+    ]
+  },
+  "workflow": {
+    "typical_steps": [
+      "Modify code in server/src/",
+      "Check with: cargo check",
+      "Build with: cargo build --release",
+      "Test with: cargo run --release --bin linky",
+      "Build podman: podman build -t linky-c2 .",
+      "Clean with: cargo clean"
+    ],
+    "make_commands": {
+      "build": "make build - Build in release mode",
+      "test": "make test - Run unit tests",
+      "check": "make check - Run checks (check + clippy)",
+      "podman": "make podman - Build podman image",
+      "test-full": "make test-full - Run all tests",
+      "clean": "make clean - Clean build artifacts"
+    }
+  },
+  "conventions": {
+    "code_style": [
+      "Use rustfmt for formatting",
+      "Limit lines to 100 characters",
+      "French comments for documentation",
+      "snake_case for variables and functions",
+      "PascalCase for types and traits"
+    ],
+    "error_handling": [
+      "Use anyhow/thiserror for errors",
+      "Don't panic in production code",
+      "Log errors with tracing::error!",
+      "Return Result<T, E> for public functions"
+    ],
+    "testing": [
+      "Write unit tests for critical functions",
+      "Use cargo test to run tests",
+      "Check coverage with tarpaulin if available",
+      "Test error scenarios"
     ]
   }
 }
