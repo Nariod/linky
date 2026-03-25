@@ -36,7 +36,6 @@ pub struct Link {
     pub external_ip: String,
     pub pid: u32,
     /// Per-implant secret for key derivation (hex-encoded 32 bytes)
-    #[allow(dead_code)]
     pub secret: String,
     pub first_checkin: DateTime<Local>,
     pub last_checkin: DateTime<Local>,

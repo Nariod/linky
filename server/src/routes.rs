@@ -16,19 +16,18 @@ pub struct AppState {
     pub links: Arc<Mutex<Links>>,
 }
 
-/// Derive a 32-byte key using HKDF-SHA256
+/// Derive a 32-byte key from secret and salt using SHA-256.
+/// Must stay aligned with link-common::derive_key (same algorithm).
 fn derive_key(secret: &[u8], salt: &str) -> [u8; 32] {
-    use hkdf::Hkdf;
-    use sha2::Sha256;
+    use sha2::{Digest, Sha256};
 
-    let salt = salt.as_bytes();
-    let ikm = secret;
-    let info = []; // No info
-
-    let hk = Hkdf::<Sha256>::new(Some(salt), ikm);
-    let mut okm = [0u8; 32];
-    hk.expand(&info, &mut okm).expect("HKDF expansion failed");
-    okm
+    let mut hasher = Sha256::new();
+    hasher.update(secret);
+    hasher.update(salt.as_bytes());
+    let result = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&result[..32]);
+    key
 }
 
 /// Encrypt payload data using AES-256-GCM

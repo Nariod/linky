@@ -79,7 +79,6 @@ pub fn build_client() -> reqwest::blocking::Client {
 /// Derive a 32-byte key from secret and salt using SHA-256
 pub fn derive_key(secret: &str, salt: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
-    use zeroize::Zeroize;
 
     let mut hasher = Sha256::new();
     hasher.update(secret.as_bytes());
@@ -88,11 +87,9 @@ pub fn derive_key(secret: &str, salt: &str) -> [u8; 32] {
     let result = hasher.finalize();
     let mut key = [0u8; 32];
     key.copy_from_slice(&result[..32]);
-
-    // Zeroize the intermediate hash result
-    let mut result_bytes = result.as_slice().to_owned();
-    result_bytes.zeroize();
-
+    // `result` is a stack-only GenericArray (no heap); it will be overwritten
+    // when this frame is reused. Caller should wrap the returned key in
+    // Zeroizing<[u8; 32]> if longer-lived zeroization is required.
     key
 }
 
@@ -102,7 +99,6 @@ pub fn encrypt_config(data: &str, key: &[u8; 32]) -> String {
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
     };
-    use zeroize::Zeroize;
 
     let nonce_bytes = rand::random::<[u8; 12]>();
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -115,10 +111,6 @@ pub fn encrypt_config(data: &str, key: &[u8; 32]) -> String {
     result.extend_from_slice(nonce);
     result.extend_from_slice(&ciphertext);
 
-    // Zeroize sensitive data
-    let mut key_copy = *key;
-    key_copy.zeroize();
-
     hex::encode(result)
 }
 
@@ -128,7 +120,6 @@ pub fn decrypt_config(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
     };
-    use zeroize::Zeroize;
 
     let encrypted_data = hex::decode(encrypted_hex).ok()?;
     if encrypted_data.len() < 12 {
@@ -137,10 +128,6 @@ pub fn decrypt_config(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
     let nonce = Nonce::from_slice(&encrypted_data[..12]);
     let ciphertext = &encrypted_data[12..];
     let cipher = Aes256Gcm::new_from_slice(key).ok()?;
-
-    // Zeroize sensitive data
-    let mut key_copy = *key;
-    key_copy.zeroize();
 
     match cipher.decrypt(nonce, ciphertext) {
         Ok(decrypted) => String::from_utf8(decrypted).ok(),
@@ -342,19 +329,28 @@ pub fn handle_killdate_command(args: &str) -> String {
         };
     }
 
-    let formats = [
-        "%Y-%m-%d",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y/%m/%d",
-        "%Y/%m/%d %H:%M:%S",
-    ];
-    for fmt in formats {
+    // Try full datetime formats first
+    let datetime_formats = ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"];
+    for fmt in datetime_formats {
         if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(args, fmt) {
             let ts = dt.and_utc().timestamp();
             set_kill_date(Some(ts));
             return format!("[+] Kill date set to: {}", dt.format("%Y-%m-%d %H:%M:%S"));
         }
     }
+
+    // NaiveDateTime requires a time component; use NaiveDate for date-only inputs.
+    let date_formats = ["%Y-%m-%d", "%Y/%m/%d"];
+    for fmt in date_formats {
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(args, fmt) {
+            if let Some(dt) = d.and_hms_opt(23, 59, 59) {
+                let ts = dt.and_utc().timestamp();
+                set_kill_date(Some(ts));
+                return format!("[+] Kill date set to: {}", dt.format("%Y-%m-%d %H:%M:%S"));
+            }
+        }
+    }
+
     "[-] Usage: killdate [timestamp|YYYY-MM-DD|clear]".to_string()
 }
 

