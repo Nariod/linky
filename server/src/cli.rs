@@ -322,7 +322,7 @@ pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
                 let now = Local::now().format("%H:%M:%S");
                 let header_text = format!("═ {} · {} · {} ", link.name, task.cli_command, now);
                 let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
-                
+
                 if task.output.is_empty() {
                     ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
                     ui::print(&format!("║ {} (no output)", task.cli_command));
