@@ -1,5 +1,5 @@
-use colored::Colorize;
 use chrono::Local;
+use colored::Colorize;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -29,14 +29,14 @@ pub fn run(links: Arc<Mutex<Links>>) {
                         if rest.is_empty() {
                             ui::print("Usage: generate <ip:port>");
                         } else {
-                            generate::generate_windows(rest);
+                            crate::generate::generate_windows(rest);
                         }
                     }
                     "generate-linux" => {
                         if rest.is_empty() {
                             ui::print("Usage: generate-linux <ip:port>");
                         } else {
-                            generate::generate_linux(rest);
+                            crate::generate::generate_linux(rest);
                         }
                     }
 
@@ -44,7 +44,7 @@ pub fn run(links: Arc<Mutex<Links>>) {
                         if rest.is_empty() {
                             ui::print("Usage: generate-osx <ip:port>");
                         } else {
-                            generate::generate_osx(rest);
+                            crate::generate::generate_osx(rest);
                         }
                     }
                     "help" => print_help(),
@@ -183,7 +183,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
             ui::print("    Type 'help' for commands, 'back' to return\n");
         }
     }
-    
+
     // Display results of completed tasks (outside the initial lock)
     show_completed_task_results(links, link_id);
 
