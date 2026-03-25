@@ -1596,6 +1596,8 @@ dependencies = [
  "chrono",
  "colored",
  "criterion",
+ "hex",
+ "rand 0.8.5",
  "rcgen",
  "rustls",
  "rustyline",
