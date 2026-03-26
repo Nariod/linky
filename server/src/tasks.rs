@@ -12,10 +12,10 @@ pub struct Task {
     pub id: Uuid,
     pub command: String,
     /// Original CLI string as typed by the operator (stored for audit/display).
-    #[allow(dead_code)]
     pub cli_command: String,
     pub status: TaskStatus,
     pub output: String,
+    pub displayed: bool,
     /// For file download tasks, contains the base64 encoded file content
     pub file_content: Option<String>,
     /// For file download tasks, contains the original file name
@@ -34,6 +34,7 @@ impl Task {
             cli_command,
             status: TaskStatus::Waiting,
             output: String::new(),
+            displayed: false,
             file_content: None,
             file_name: None,
             upload_content: None,

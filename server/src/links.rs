@@ -32,7 +32,6 @@ pub struct Link {
     pub hostname: String,
     pub internal_ip: String,
     /// Stored for potential future use (e.g. display, logging).
-    #[allow(dead_code)]
     pub external_ip: String,
     pub pid: u32,
     /// Per-implant secret for key derivation (hex-encoded 32 bytes)
@@ -150,6 +149,7 @@ impl Links {
             cli_command: format!("download {}", remote_path),
             status: TaskStatus::Waiting,
             output: String::new(),
+            displayed: false,
             file_content: None,
             file_name: None,
             upload_content: None,
@@ -182,6 +182,7 @@ impl Links {
             cli_command: format!("upload {} {}", local_path, remote_path),
             status: TaskStatus::Waiting,
             output: String::new(),
+            displayed: false,
             file_content: None,
             file_name: None,
             upload_content: Some(file_content),

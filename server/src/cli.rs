@@ -314,25 +314,30 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
 }
 
 pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
-    let l = links.lock().unwrap();
-    if let Some(link) = l.get_link(link_id) {
-        for task in &link.tasks {
-            if task.status == TaskStatus::Completed {
-                const OUTPUT_BOX_WIDTH: usize = 54;
-                let now = Local::now().format("%H:%M:%S");
-                let header_text = format!("═ {} · {} · {} ", link.name, task.cli_command, now);
-                let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+    let mut l = links.lock().unwrap();
+    let Some(link) = l.get_link_mut(link_id) else {
+        return;
+    };
+    let link_name = link.name.clone();
 
-                if task.output.is_empty() {
-                    ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
-                    ui::print(&format!("║ {} (no output)", task.cli_command));
-                    ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
-                } else {
-                    ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
-                    ui::print(&format!("║ {}", task.output));
-                    ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
-                }
+    for task in &mut link.tasks {
+        if task.status == TaskStatus::Completed && !task.displayed {
+            const OUTPUT_BOX_WIDTH: usize = 54;
+            let now = Local::now().format("%H:%M:%S");
+            let header_text = format!("═ {} · {} · {} ", link_name, task.cli_command, now);
+            let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+
+            if task.output.is_empty() {
+                ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
+                ui::print(&format!("║ {} (no output)", task.cli_command));
+                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+            } else {
+                ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
+                ui::print(&format!("║ {}", task.output));
+                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
             }
+
+            task.displayed = true;
         }
     }
 }
@@ -347,6 +352,7 @@ fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
             link.username, link.hostname
         ));
         ui::print(&format!("  Internal  : {}", link.internal_ip));
+        ui::print(&format!("  External  : {}", link.external_ip));
         ui::print(&format!("  Platform  : {}", link.platform));
         ui::print(&format!("  PID       : {}", link.pid));
         ui::print(&format!(
