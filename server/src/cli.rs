@@ -112,7 +112,7 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                         if rest.is_empty() {
                             ui::print("Usage: -k <name>");
                         } else if let Some(id) = resolve_link(links, rest) {
-                            let mut l = links.lock().unwrap();
+                            let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
                             l.add_task(id, "exit".into(), "kill".into());
                             l.kill_link(id);
                             ui::print(&format!("{} Kill task queued.", "[+]".green()));
@@ -137,7 +137,7 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
 }
 
 fn print_links_table(links: &Arc<Mutex<Links>>) {
-    let links = links.lock().unwrap();
+    let links = links.lock().unwrap_or_else(|e| e.into_inner());
     let all = links.all_links();
     if all.is_empty() {
         ui::print(&format!("{} No links registered.", "[*]".cyan()));
@@ -170,7 +170,7 @@ fn print_links_table(links: &Arc<Mutex<Links>>) {
 
 fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
     {
-        let l = links.lock().unwrap();
+        let l = links.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(link) = l.get_link(link_id) {
             ui::print(&format!(
                 "\n{} Interacting with {} – {}@{} [{}]",
@@ -189,7 +189,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
         show_completed_task_results(links, link_id);
 
         let prompt = {
-            let l = links.lock().unwrap();
+            let l = links.lock().unwrap_or_else(|e| e.into_inner());
             l.get_link(link_id)
                 .map(|lk| format!("{}> ", lk.name))
                 .unwrap_or_else(|| "link> ".into())
@@ -209,7 +209,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                     "back" | "exit" => break,
                     "info" => show_info(links, link_id),
                     "kill" => {
-                        let mut l = links.lock().unwrap();
+                        let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
                         l.add_task(link_id, "exit".into(), "kill".into());
                         l.kill_link(link_id);
                         ui::print(&format!("{} Kill task queued.", "[+]".green()));
@@ -263,7 +263,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                         if args.is_empty() {
                             ui::print("Usage: download <remote_path>");
                         } else {
-                            let mut l = links.lock().unwrap();
+                            let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
                             if let Some(id) = l.get_link(link_id).map(|link| link.id) {
                                 l.add_download_task(id, args.to_string());
                                 ui::print(&format!("{} Download task queued.", "[+]".green()));
@@ -277,7 +277,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                         } else {
                             let local_path = parts[0].to_string();
                             let remote_path = parts[1..].join(" ");
-                            let mut l = links.lock().unwrap();
+                            let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
                             if let Some(id) = l.get_link(link_id).map(|link| link.id) {
                                 if l.add_upload_task(id, local_path, remote_path).is_some() {
                                     ui::print(&format!("{} Upload task queued.", "[+]".green()));
@@ -314,7 +314,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
 }
 
 pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
-    let mut l = links.lock().unwrap();
+    let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
     let Some(link) = l.get_link_mut(link_id) else {
         return;
     };
@@ -343,7 +343,7 @@ pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
 }
 
 fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
-    let l = links.lock().unwrap();
+    let l = links.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(link) = l.get_link(link_id) {
         ui::print(&format!("  Name      : {}", link.name));
         ui::print(&format!("  ID        : {}", link.id));
@@ -374,19 +374,23 @@ fn show_info(links: &Arc<Mutex<Links>>, link_id: Uuid) {
 fn is_windows(links: &Arc<Mutex<Links>>, link_id: Uuid) -> bool {
     links
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .get_link(link_id)
         .map(|l| l.platform == "windows")
         .unwrap_or(false)
 }
 
 fn queue(links: &Arc<Mutex<Links>>, link_id: Uuid, command: String, cli_cmd: String) {
-    let mut l = links.lock().unwrap();
+    let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
     l.add_task(link_id, command, cli_cmd);
 }
 
 fn resolve_link(links: &Arc<Mutex<Links>>, name: &str) -> Option<Uuid> {
-    links.lock().unwrap().get_link_by_name(name).map(|l| l.id)
+    links
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_link_by_name(name)
+        .map(|l| l.id)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -398,6 +402,10 @@ fn status_colored(status: &LinkStatus) -> String {
         LinkStatus::Exited => "Exited".red().to_string(),
     }
 }
+
+// Note : cette fonction est dupliquée depuis links/common/src/lib.rs.
+// Le serveur ne dépend pas de link-common → duplication structurelle intentionnelle.
+// Tout changement ici doit être répercuté dans link-common::split_first et vice-versa.
 
 /// Split "cmd rest…" → ("cmd", "rest…").
 fn split_first(s: &str) -> (&str, &str) {

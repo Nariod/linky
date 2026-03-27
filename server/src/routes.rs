@@ -279,11 +279,11 @@ pub async fn stage2_handler(
 
 /// POST /static/get – Stage 3: task polling / output callback.
 ///
-/// Lock strategy (0.5.7): at most 2 Mutex acquisitions per request.
-///  • Lock 1: resolve link_id from x-request-id.
-///  • Lock 2 (conditional): process output, complete task, then release.
-///    UI printing happens outside the lock.
-///  • Lock 3: rotate x_request_id + dispatch next task.
+/// Lock strategy (0.5.7): 3 Mutex acquisitions max par requête.
+///  • Lock 1 : résoudre link_id depuis x-request-id + récupérer le secret.
+///  • Lock 2 (conditionnel) : traiter l'output, complete_task, marquer displayed.
+///    L'affichage UI se fait HORS du verrou.
+///  • Lock 3 : rotation x_request_id + dispatch prochaine tâche.
 pub async fn stage3_handler(
     req: HttpRequest,
     body: web::Json<CallbackRequest>,
