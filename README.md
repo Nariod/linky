@@ -13,7 +13,6 @@ A minimal, Rust-native Command & Control framework. Rewrite of [postrequest/link
 ---
 
 ## Quick start (Podman, 3 steps)
-
 ```bash
 # 1. Build (includes full Rust toolchain for on-the-fly implant generation)
 podman build -t linky-c2 .
@@ -38,7 +37,7 @@ Your implant is in `./implants/link-linux`. No Rust installation needed on the h
 | Trait | Detail |
 |-------|--------|
 | **Rust-native** | Harder to reverse than Go/Python — limited RE tooling for Rust binaries |
-| **Small codebase** | ~3k LOC vs ~50k for Sliver — auditable, forkable |
+| **Small codebase** | ~2k LOC vs ~50k for Sliver — auditable, forkable |
 | **Container-first** | Build + run in 3 commands, no host dependencies |
 | **KISS** | One binary, one protocol, no plugin system to learn |
 
@@ -47,7 +46,6 @@ Linky does **not** aim for feature parity with Sliver, Mythic, or Havoc. It's a 
 ---
 
 ## Architecture
-
 ```
 linky/
 ├── server/                 # C2 server binary
@@ -61,10 +59,13 @@ linky/
 │       ├── generate.rs     # Implant builder (invokes cargo)
 │       └── ui.rs           # Terminal output helpers
 ├── links/
-│   ├── common/             # Shared: HTTP client, encryption, wire types
-│   ├── linux/              # Linux implant    → link-linux
-│   ├── windows/            # Windows implant  → link-windows.exe
-│   └── osx/                # macOS implant    → link-osx (stub)
+│   ├── common/             # Shared: C2 loop, HTTP client, crypto, wire types
+│   │   └── src/
+│   │       ├── lib.rs      # run_c2_loop(), crypto, types, helpers
+│   │       └── dispatch.rs # Cross-platform command dispatch
+│   ├── linux/              # Linux implant    → link-linux (~80 LOC)
+│   ├── windows/            # Windows implant  → link-windows.exe (~120 LOC)
+│   └── osx/                # macOS implant    → link-osx (~80 LOC)
 ├── podmanfile              # Single-stage with full Rust toolchain
 ├── CLAUDE.md               # Instructions for Claude Code
 └── .mistralrc              # Instructions for Mistral Vibe
@@ -72,28 +73,28 @@ linky/
 
 ### C2 protocol (3 stages)
 
-All communication is HTTPS/JSON. Each request is validated against a fixed User-Agent, a session cookie, and a rolling UUID header.
-
+All communication is HTTPS/JSON with AES-256-GCM payload encryption. Each request is validated against an obfuscated User-Agent, a session cookie, and a rolling UUID header.
 ```
 Implant                           Server
   │                                  │
   │── GET /js ───────────────────────▶│  Stage 1: Set-Cookie
   │                                  │
   │── POST /static/register ─────────▶│  Stage 2: register + initial x_request_id
-  │◀─ { x_request_id } ──────────────│
+  │◀─ { x_request_id, data? } ───────│
   │                                  │
-  │── POST /static/get ──────────────▶│  Stage 3: polling loop (configurable)
-  │   header: x-request-id           │    → server returns next task
-  │   body: { q, tasking }           │    ← implant submits task output
-  │◀─ { q, tasking, x_request_id } ──│
+  │── POST /static/get ──────────────▶│  Stage 3: polling loop
+  │   header: x-request-id           │    body: AES-256-GCM encrypted payload
+  │   body: { data: encrypted }      │    ← implant submits task output (encrypted)
+  │◀─ { data: encrypted, x_req_id } ─│    → server returns next task (encrypted)
 ```
+
+Each implant has a **unique AES-256-GCM key** derived from a per-implant secret generated at build time. Keys never appear in plaintext in binaries.
 
 ---
 
 ## CLI reference
 
 ### Main menu
-
 ```
 linky> help
   links                    Manage active links
@@ -105,7 +106,6 @@ linky> help
 ```
 
 ### Link interaction
-
 ```
   ── Execution ────────────────────────────────────────
   shell <cmd>              Raw command via /bin/sh or cmd.exe
@@ -140,7 +140,6 @@ linky> help
 **Server only:** Rust 1.70+
 
 **Full (server + implant generation):**
-
 ```bash
 # Debian/Ubuntu
 sudo apt-get install -y musl-tools mingw-w64 clang lld pkg-config libssl-dev
@@ -152,14 +151,12 @@ rustup target add x86_64-pc-windows-gnu x86_64-unknown-linux-musl
 ```
 
 ### Build & run
-
 ```bash
 cargo build --release -p linky
 ./target/release/linky 0.0.0.0:8443
 ```
 
-### podman/Podman
-
+### Podman
 ```bash
 podman build -t linky-c2 .
 podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
@@ -172,15 +169,19 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 | Feature | Linux | Windows | macOS |
 |---------|-------|---------|-------|
 | Shell execution | `/bin/sh -c` | `cmd.exe /C` (CREATE_NO_WINDOW) | `/bin/sh -c` |
-| System info | `/proc`, `/etc/os-release` | PowerShell, env vars | `sw_vers`, `scutil` |
-| Process listing | `/proc` parsing | `tasklist /FO CSV` | — |
-| Network connections | `/proc/net/tcp*` | `netstat -ano` | — |
-| File download/upload | ✅ | ✅ | — |
-| Configurable sleep+jitter | ✅ | ✅ | — |
-| Kill date | ✅ | ✅ | — |
-| Encrypted config | AES-256-GCM | AES-256-GCM | — |
+| System info | `/proc`, `/etc/os-release` | PowerShell, env vars | — (shell fallback) |
+| Process listing | `/proc` parsing | `tasklist /FO CSV` | — (shell fallback) |
+| Network connections | `/proc/net/tcp*` | `netstat -ano` | — (shell fallback) |
+| File download/upload | ✅ | ✅ | ✅ |
+| Configurable sleep+jitter | ✅ | ✅ | ✅ |
+| Kill date | ✅ | ✅ | ✅ |
+| Encrypted C2 comms | AES-256-GCM | AES-256-GCM | AES-256-GCM |
+| Per-implant key | ✅ | ✅ | ✅ |
+| Obfuscated strings | ✅ | ✅ | ✅ |
 | Shellcode injection | — | VirtualAllocEx + CreateRemoteThread | — |
 | Integrity level | — | Token query | — |
+
+> macOS `info`, `ps`, `netstat` fall back to shell execution. Native implementations pending (item 4.4).
 
 ---
 
@@ -188,21 +189,24 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 
 ### Current limitations (honest assessment)
 
-- **Crypto**: encryption key is shared across all implants (hardcoded derivation). No payload encryption on the wire (JSON in cleartext over self-signed TLS).
-- **Evasion**: zero EDR evasion. Windows injection uses the most hooked APIs. No AMSI/ETW bypass. Static strings (UA, cookie, routes) are trivial signatures.
+- **Evasion**: zero EDR evasion. Windows injection uses the most heavily monitored APIs (VirtualAllocEx + CreateRemoteThread). No AMSI/ETW bypass. Binary signatures are unaddressed.
 - **Features**: no persistence, no SOCKS proxy, no credential harvesting, no lateral movement.
-- **Operations**: single operator, no logging, no database, no web UI.
-- **macOS**: stub only — no encryption, no jitter, no file ops.
+- **Operations**: single operator, no logging to disk, no database, no web UI.
+- **macOS**: `info`, `ps`, `netstat` not natively implemented — fall back to shell.
+- **Transport**: TLS is self-signed, no certificate pinning or domain fronting.
 
 ### MVP roadmap (target: ~50% feature coverage)
 
-| Sprint | Focus | Duration |
-|--------|-------|----------|
-| 0 | Dead code cleanup, error handling | ~3 days |
-| 1 | Per-implant keys, payload encryption, string obfuscation | ~2 weeks |
-| 2 | Malleable profiles, binary size, indirect syscalls, AMSI/ETW | ~2 weeks |
-| 3 | Persistence (Linux+Windows), SOCKS proxy, op logging | ~3 weeks |
-| 4 | Integration tests, CI hardening, macOS alignment | ~1 week |
+| Sprint | Focus | Status |
+|--------|-------|--------|
+| 0 | Dead code cleanup, error handling | ✅ Done |
+| 0.5 | Robustness, factorization debt | ✅ Done |
+| 1 | Per-implant keys, payload encryption, string obfuscation | ✅ Done |
+| 1.5 | Code factorization (run_c2_loop), mutex hardening | ✅ Done |
+| 1.6 | Cargo.toml cleanup, CLAUDE.md update | 🔴 Next |
+| 2 | Malleable profiles, binary size, indirect syscalls, AMSI/ETW | ⬜ Planned |
+| 3 | Persistence (Linux+Windows), SOCKS proxy, op logging | ⬜ Planned |
+| 4 | Integration tests, CI hardening, macOS alignment | ⬜ Planned |
 
 See `TODO.txt` for the detailed task list.
 
@@ -212,93 +216,45 @@ See `TODO.txt` for the detailed task list.
 
 This tool is for **authorized** penetration testing engagements only. Do not use it against systems without explicit written permission.
 
-## Testing & Automation
+---
 
-### Automated Testing
-
-Linky includes comprehensive automated testing:
-
+## Testing
 ```bash
-# Run all tests (recommended)
-make test-full
+# Full quality check
+cargo fmt --all -- --check
+cargo clippy --workspace -- -D warnings
+cargo test --workspace
 
-# Individual test commands
-make build      # Build in release mode
-make test       # Run unit tests
-make check      # Run cargo check + clippy
-make podman     # Build podman image
-make clean      # Clean build artifacts
+# Build all implants (requires cross-compilation toolchain)
+cargo check -p link-linux
+cargo check -p link-windows
+cargo check -p link-osx
+cargo check -p link-common
 
-# Or use the complete test script
-./test_linky.sh
+# Run the server
+cargo run --release --bin linky 0.0.0.0:8443
 ```
 
-### Recent Bug Fixes
-
-The following critical bugs have been fixed in the latest version:
-
-1. **Double Task Result Display**: Fixed by setting `task.displayed = true` after printing results in `stage3_handler` to prevent duplicate output in the CLI.
-
-2. **Download Task Output Overwrite**: Fixed by preserving the user-friendly message (e.g., "File saved to downloads/link-1/file.txt") instead of overwriting with raw blob data when completing download tasks.
-
-3. **Static User-Agent String**: Fixed by obfuscating the `IMPLANT_UA` string using `obfstr!()` to prevent static binary analysis.
-
-All fixes are in `server/src/routes.rs` and verified with:
-- `cargo check --workspace` ✓
-- `cargo clippy --workspace -- -D warnings` ✓
-- `cargo test -p linky` (16/16 tests passing) ✓
-
-### Test Coverage
-
-- ✅ Code validation (`cargo check`)
-- ✅ Linting (`cargo clippy`)
-- ✅ Unit tests (`cargo test`)
-- ✅ Release build (`cargo build --release`)
-- ✅ podman build (`podman build -t linky-c2`)
-
-### Testing Command Output Display
-
-To verify the command output display functionality:
-
-1. Start the server: `cargo run --release --bin linky`
-2. Generate an implant: `generate-linux 127.0.0.1:8443`
-3. Execute commands: `whoami`, `pwd`, `info`
-4. Verify results display in formatted boxes:
-
+### Verify end-to-end
 ```
-╔═ link-1 · whoami · 14:38:23 ═════════════════════════════╗
+linky> generate-linux 127.0.0.1:8443
+# Run the generated implant, then:
+linky> links
+linky> -i link-1
+link-1> whoami
+```
+
+Result appears in a formatted box:
+```
+╔═ link-1 · whoami · 14:38:23 ═══════════════════╗
 ║ fedora@hostname
-╚═══════════════════════════════════════════════════════════════╝
+╚═════════════════════════════════════════════════╝
 ```
+
+---
 
 ## Configuration for AI Developers
 
-### Mistral AI Configuration
-
-The `.mistralrc` file contains:
-- Project overview and architecture
-- Automated test commands
-- Key files documentation
-- Development workflow
-- Coding conventions
-
-### Claude AI Configuration
-
-The `.claude/settings.local.json` file contains:
-- Structured project information
-- Testing guidelines
-- Common issues and debugging tips
-- Key features documentation
-
-### Key Files for AI Understanding
-
-| File | Purpose |
-|------|---------|
-| `server/src/cli.rs` | CLI interface and command result display |
-| `server/src/routes.rs` | HTTP request handling and implant communication |
-| `server/src/links.rs` | Link/implant management and task system |
-| `server/src/tasks.rs` | Task definitions and status management |
-
-## License
-
-See LICENSE file.
+- **`CLAUDE.md`** — conventions, architecture, security rules for Claude Code
+- **`.mistralrc`** — conventions and workflow for Mistral Vibe
+- **`TODO.txt`** — authoritative roadmap (read before modifying anything)
