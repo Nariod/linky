@@ -71,74 +71,54 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 [✅] 1.0.4  BUG : NaiveDateTime::parse_from_str AVEC FORMATS DATE-ONLY
          FIX appliqué : NaiveDate::parse_from_str + .and_hms_opt(23,59,59).
 
-[🔴] 1.0.5  BUG CRITIQUE : DÉSÉRIALISATION IMPOSSIBLE DU PAYLOAD CHIFFRÉ
+[✅] 1.0.5  BUG CRITIQUE : DÉSÉRIALISATION IMPOSSIBLE DU PAYLOAD CHIFFRÉ
+         FIX appliqué (Option A) : #[serde(default)] présent sur tous les
+         champs de TaskResponse dans links/common/src/lib.rs + derive Default.
+         Le C2 reçoit et exécute correctement les commandes.
+
+[🔴] 1.0.6  BUG UX : DOUBLE AFFICHAGE DES RÉSULTATS DE TÂCHES
          ─────────────────────────────────────────────────────────────────
-         C'EST LE BUG QUI CASSE TOUT LE C2 ACTUELLEMENT.
+         PARTIELLEMENT FIXÉ — le champ `displayed: bool` existe dans Task
+         et est vérifié dans show_completed_task_results() (cli.rs), mais
+         routes.rs n'appelle JAMAIS `task.displayed = true` après avoir
+         imprimé le résultat en temps réel dans stage3_handler.
 
          Cause racine :
-         Le serveur (routes.rs stage3_handler, Lock 3) chiffre un struct
-         ResponsePayload qui contient {q, tasking, file, filename, upload,
-         upload_path} — SANS le champ x_request_id.
+         stage3_handler (Lock 2) affiche la boîte résultat immédiatement,
+         puis appelle complete_task() → task.status = Completed.
+         Mais task.displayed reste false.
+         show_completed_task_results() voit Completed && !displayed → réaffiche.
 
-         L'implant (linux/osx/windows stdlib.rs) déchiffre le payload et
-         tente de le parser comme TaskResponse :
+         FIX (~5 min) :
+         Dans routes.rs, Lock 2, APRÈS complete_task(), à l'intérieur du
+         verrou, ajouter :
+           // Éviter le double affichage dans cli.rs
+           if let Some(link) = links.get_link_mut(link_id) {
+               if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
+                   task.displayed = true;
+               }
+           }
+         Fichiers : server/src/routes.rs (stage3_handler, Lock 2)
+         Difficulté : triviale
 
-           serde_json::from_str::<TaskResponse>(&decrypted_json)
+[🔴] 1.0.7  BUG : OUTPUT DES TÂCHES DOWNLOAD ÉCRASÉ PAR complete_task()
+         ─────────────────────────────────────────────────────────────────
+         Pour les tâches `download`, dans Lock 2 de stage3_handler :
+           1. task.output ← "[+] File saved to downloads/link-1/file.txt"
+           2. complete_task(link_id, task_id, decrypted_q.clone()) écrase
+              task.output avec le blob brut "FILE:/path:base64data..."
 
-         Or TaskResponse dans link-common/lib.rs a :
-
-           pub x_request_id: String,   // PAS de #[serde(default)] !
-
-         Serde exige ce champ dans le JSON. Comme il est absent du payload
-         chiffré, la désérialisation échoue SYSTÉMATIQUEMENT avec :
-         "missing field `x_request_id`"
-
-         Le code tombe dans le fallback :
-           decrypted_task = TaskResponse {
-               q: String::new(),        // ← VIDE
-               tasking: String::new(),
-               ...
+         FIX (~5 min) :
+           let complete_output = if is_download {
+               ui_message.as_ref()
+                   .map(|(_, _, msg)| msg.clone())
+                   .unwrap_or_else(|| decrypted_q.clone())
+           } else {
+               decrypted_q.clone()
            };
-
-         Conséquence : decrypted_task.q est toujours vide → l'implant
-         ne voit jamais de commande → boucle idle indéfiniment.
-         Côté serveur, les tâches passent InProgress mais ne reçoivent
-         jamais de résultat → restent InProgress → jamais affichées.
-
-         FIX (KISS, 2 options au choix) :
-         Option A (rapide, ~2 min) :
-           Ajouter #[serde(default)] sur x_request_id dans TaskResponse
-           (links/common/src/lib.rs). Le x_request_id du payload interne
-           sera "" mais n'est pas utilisé — l'implant utilise celui de
-           l'enveloppe HTTP externe (task.x_request_id).
-
-         Option B (propre, ~15 min) :
-           Créer un struct DecryptedPayload dans link-common qui correspond
-           exactement à ResponsePayload du serveur (sans x_request_id,
-           sans data). Modifier les 3 implants pour parser comme
-           DecryptedPayload au lieu de TaskResponse.
-
-         Recommandation : Option B est plus propre mais Option A suffit
-         pour le MVP. Faire A maintenant, B dans le refactor 1.5.1.
-
-         Fichiers : links/common/src/lib.rs (TaskResponse),
-                    OU links/*/src/stdlib.rs (parsing du payload)
-         Difficulté : triviale (Option A) ou faible (Option B)
-         Impact : BLOQUANT — sans ce fix, aucune commande n'est exécutée.
-
-[🟡] 1.0.6  BUG UX : show_completed_task_results RÉ-AFFICHE EN BOUCLE
-         Dans cli.rs, show_completed_task_results() est appelée à chaque
-         itération de la boucle interact(), avant readline(). Elle parcourt
-         TOUTES les tâches Completed du link sans tracker celles déjà
-         affichées. Résultat : si une tâche est Completed, elle est
-         ré-affichée à chaque frappe clavier.
-         FIX : Ajouter un champ `displayed: bool` dans Task (tasks.rs),
-         le mettre à true après affichage, et ne montrer que les tâches
-         non-displayed. Alternativement, utiliser un index "last displayed"
-         dans la boucle interact().
-         Fichiers : server/src/cli.rs (show_completed_task_results),
-                    server/src/tasks.rs (ajouter champ displayed)
-         Difficulté : faible (~15 min)
+           links.complete_task(link_id, task_id, complete_output);
+         Fichiers : server/src/routes.rs (stage3_handler, Lock 2)
+         Difficulté : triviale
 
 ── Cryptographie (items originaux, mis à jour) ────────────────────────────────
 
