@@ -76,49 +76,15 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
          champs de TaskResponse dans links/common/src/lib.rs + derive Default.
          Le C2 reçoit et exécute correctement les commandes.
 
-[🔴] 1.0.6  BUG UX : DOUBLE AFFICHAGE DES RÉSULTATS DE TÂCHES
-         ─────────────────────────────────────────────────────────────────
-         PARTIELLEMENT FIXÉ — le champ `displayed: bool` existe dans Task
-         et est vérifié dans show_completed_task_results() (cli.rs), mais
-         routes.rs n'appelle JAMAIS `task.displayed = true` après avoir
-         imprimé le résultat en temps réel dans stage3_handler.
+[✅] 1.0.6  BUG UX : DOUBLE AFFICHAGE DES RÉSULTATS DE TÂCHES
+         FIXÉ — Ajout de `task.displayed = true` après `complete_task()`
+         dans stage3_handler (Lock 2) pour éviter le double affichage.
+         Fichiers : server/src/routes.rs
 
-         Cause racine :
-         stage3_handler (Lock 2) affiche la boîte résultat immédiatement,
-         puis appelle complete_task() → task.status = Completed.
-         Mais task.displayed reste false.
-         show_completed_task_results() voit Completed && !displayed → réaffiche.
-
-         FIX (~5 min) :
-         Dans routes.rs, Lock 2, APRÈS complete_task(), à l'intérieur du
-         verrou, ajouter :
-           // Éviter le double affichage dans cli.rs
-           if let Some(link) = links.get_link_mut(link_id) {
-               if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
-                   task.displayed = true;
-               }
-           }
-         Fichiers : server/src/routes.rs (stage3_handler, Lock 2)
-         Difficulté : triviale
-
-[🔴] 1.0.7  BUG : OUTPUT DES TÂCHES DOWNLOAD ÉCRASÉ PAR complete_task()
-         ─────────────────────────────────────────────────────────────────
-         Pour les tâches `download`, dans Lock 2 de stage3_handler :
-           1. task.output ← "[+] File saved to downloads/link-1/file.txt"
-           2. complete_task(link_id, task_id, decrypted_q.clone()) écrase
-              task.output avec le blob brut "FILE:/path:base64data..."
-
-         FIX (~5 min) :
-           let complete_output = if is_download {
-               ui_message.as_ref()
-                   .map(|(_, _, msg)| msg.clone())
-                   .unwrap_or_else(|| decrypted_q.clone())
-           } else {
-               decrypted_q.clone()
-           };
-           links.complete_task(link_id, task_id, complete_output);
-         Fichiers : server/src/routes.rs (stage3_handler, Lock 2)
-         Difficulté : triviale
+[✅] 1.0.7  BUG : OUTPUT DES TÂCHES DOWNLOAD ÉCRASÉ PAR complete_task()
+         FIXÉ — Construction de `complete_output` préservant le message
+         user-friendly pour les downloads au lieu du blob brut.
+         Fichiers : server/src/routes.rs
 
 ── Cryptographie (items originaux, mis à jour) ────────────────────────────────
 
@@ -131,14 +97,13 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
          car le struct de destination (TaskResponse) a un champ requis absent.
          → Sera fonctionnel dès que 1.0.5 est résolu.
 
-[ ] 1.3  OBFUSCATION DES STRINGS STATIQUES (MVP)
-         PARTIELLEMENT FAIT. obfstr!() est utilisé sur :
+[✅] 1.3  OBFUSCATION DES STRINGS STATIQUES (MVP)
+         COMPLET — obfstr!() est utilisé sur :
          - Routes dans server.rs ✅
          - Cookie "banner=banner" dans routes.rs ✅
          - UA dans build_client() (link-common) ✅
-         MANQUANT :
-         - IMPLANT_UA dans routes.rs est un const &str en clair
-         Fichiers : server/src/routes.rs (IMPLANT_UA)
+         - IMPLANT_UA dans routes.rs ✅
+         Fichiers : server/src/routes.rs
 
 [✅] 1.4  ZEROIZE LES CLÉS EN MÉMOIRE (fixé par 1.0.3)
 
@@ -167,6 +132,10 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
          - Link::secret : retiré ✅
          - Link::external_ip : toujours présent ✗
          - Task::cli_command : toujours présent ✗ (mais lu dans routes.rs
+           et cli.rs show_completed_task_results)
+         - Task::displayed : toujours présent ✗ (mais utilisé dans routes.rs
+           et cli.rs show_completed_task_results)
+         - Task::displayed : toujours présent ✗ (mais utilisé dans routes.rs
            et cli.rs show_completed_task_results)
 
 [🟡] 1.5.8  encrypt_payload/decrypt_payload ALIAS INUTILES
@@ -240,6 +209,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 [✅] Sprint 0 complet (0.1–0.11)
 [✅] Sprint 0.5 complet (0.5.1–0.5.9)
 [✅] Tests unitaires link-common (4.5)
+[✅] Bug fixes critiques (1.0.6, 1.0.7, 1.3)
 [✅] Séparation messages UI / logs (module ui.rs)
 [✅] Gestion intelligente couleurs ANSI (IsTerminal)
 [✅] Correction build natif Linux
@@ -283,6 +253,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 
 [BUG-UX] show_completed_task_results ré-affiche toutes les tâches Completed
       à chaque itération de la boucle interact. → Voir item 1.0.6.
+      FIXÉ — Le champ `displayed` est maintenant marqué après affichage.
 
 [BUG] File upload : le parsing "upload <content> <path>" est fragile.
 
@@ -290,8 +261,8 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
 
 [BUG-MINEUR] OSX : info, ps, netstat non implémentés. → item 4.4
 
-[BUG-MINEUR] Task::cli_command et Link::external_ip ont #[allow(dead_code)]
-      mais sont activement utilisés. → item 1.5.7
+[BUG-MINEUR] Task::cli_command, Task::displayed et Link::external_ip ont
+      #[allow(dead_code)] mais sont activement utilisés. → item 1.5.7
 
 
 ================================================================================
@@ -310,6 +281,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
   2. Item 1.0.6 :
      Ajouter `displayed: bool` dans Task, filtrer dans
      show_completed_task_results(), marquer après affichage.
+     FIXÉ — Le champ `displayed` est maintenant marqué après affichage.
 
   Phase 1 — Qualité/correctness (~1 jour)
   ────────────────────────────────────────
@@ -323,6 +295,7 @@ Sans ce sprint, Linky n'est pas utilisable en engagement.
   ────────────────────────
   8. Item 1.5.1 (factoriser link_loop)
   9. Item 1.3 (obfuscation IMPLANT_UA)          ← 10 min
+      FIXÉ — IMPLANT_UA est maintenant obfuscated via obfstr!()
 
   Phases 3-6 — Quick wins, tests, OPSEC, features (inchangé)
 

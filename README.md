@@ -233,6 +233,21 @@ make clean      # Clean build artifacts
 ./test_linky.sh
 ```
 
+### Recent Bug Fixes
+
+The following critical bugs have been fixed in the latest version:
+
+1. **Double Task Result Display**: Fixed by setting `task.displayed = true` after printing results in `stage3_handler` to prevent duplicate output in the CLI.
+
+2. **Download Task Output Overwrite**: Fixed by preserving the user-friendly message (e.g., "File saved to downloads/link-1/file.txt") instead of overwriting with raw blob data when completing download tasks.
+
+3. **Static User-Agent String**: Fixed by obfuscating the `IMPLANT_UA` string using `obfstr!()` to prevent static binary analysis.
+
+All fixes are in `server/src/routes.rs` and verified with:
+- `cargo check --workspace` ✓
+- `cargo clippy --workspace -- -D warnings` ✓
+- `cargo test -p linky` (16/16 tests passing) ✓
+
 ### Test Coverage
 
 - ✅ Code validation (`cargo check`)
