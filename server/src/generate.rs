@@ -223,10 +223,9 @@ fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
         Ok(s) if s.success() => {
             if src.exists() {
                 match fs::copy(src, dest) {
-                    Ok(_) => crate::ui::print(&format!(
-                        "[+] Implant written to {}",
-                        dest.display()
-                    )),
+                    Ok(_) => {
+                        crate::ui::print(&format!("[+] Implant written to {}", dest.display()))
+                    }
                     Err(e) => tracing::error!("Copy failed: {}", e),
                 }
             } else {
