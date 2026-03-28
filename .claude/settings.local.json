@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(cargo clippy:*)",
+      "Bash(cargo test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  },
   "project": {
     "name": "Linky C2 Framework",
     "language": "Rust",
@@ -17,7 +25,10 @@
     ],
     "unit_tests": {
       "command": "cargo test",
-      "focus": ["server/src/links.rs", "server/src/tasks.rs"]
+      "focus": [
+        "server/src/links.rs",
+        "server/src/tasks.rs"
+      ]
     },
     "integration_tests": {
       "command": "cargo test --test integration",
