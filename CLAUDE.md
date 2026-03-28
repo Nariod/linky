@@ -133,7 +133,7 @@ Validation à chaque stage :
 
 ## Bugs connus
 
-- **File upload** : le parsing `upload <content> <path>` dans `dispatch_common` splitte sur le premier espace. Un chemin de destination avec espaces cassera la commande.
+- **File upload (chemin source)** : dans `cli.rs`, `upload <local> <remote>` parse le chemin local avec `split_whitespace()[0]` — un chemin source avec espaces sera tronqué. Le chemin de destination est désormais correct (champ `upload_path` séparé, `upload_file()` splitte sur le 1er espace, base64 n'ayant pas d'espaces).
 - **macOS** : `info`, `ps`, `netstat` non implémentés nativement dans `dispatch()` — tombent en fallback `shell_exec()`.
 - **Link counter** : non persisté entre redémarrages serveur — les noms recommencent à `link-1`.
 - **Link::external_ip** : toujours vide (non rempli au register).

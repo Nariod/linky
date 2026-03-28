@@ -20,13 +20,13 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
  SPRINT 1.6 — NETTOYAGE POST-REFACTOR (P1 qualité, ~45 min)
 ================================================================================
 
-[🟡] 1.6.1  CARGO.TOML DES IMPLANTS — DÉPENDANCES ORPHELINES
+[✅] 1.6.1  CARGO.TOML DES IMPLANTS — DÉPENDANCES ORPHELINES
          linux/Cargo.toml : garder uniquement link-common + obfstr
          osx/Cargo.toml   : garder uniquement link-common + obfstr
          windows/Cargo.toml : garder link-common + base64 + num_cpus + obfstr
          + deps windows/winapi
 
-[🟡] 1.6.2  CLAUDE.md — BUGS CONNUS PÉRIMÉS
+[✅] 1.6.2  CLAUDE.md — BUGS CONNUS PÉRIMÉS
 
 [✅] 1.6.3  generate.rs derive_key_sha256 — ALIGNER SUR &[u8]
          Item 1.5.10 a oublié cette fonction.
@@ -38,7 +38,7 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
 [✅] 1.6.5  link-common — SUPPRIMER ALIAS encrypt_payload/decrypt_payload
          Code mort depuis run_c2_loop (1.5.1).
 
-[🟡] 1.6.6  CLI — RÉORGANISER LE HELP DU MENU LINK (UX)
+[✅] 1.6.6  CLI — RÉORGANISER LE HELP DU MENU LINK (UX)
          Problème : les commandes Windows sont dispersées à deux endroits
          dans print_link_help() :
            - "Execution" → cmd, powershell (avec "(Windows only)")
@@ -115,7 +115,7 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
  BUGS CONNUS (actifs)
 ================================================================================
 
-[BUG] File upload : espaces dans chemin de destination cassent le parsing.
+[BUG-MINEUR] File upload : espaces dans le chemin local (source) cassent le parsing dans cli.rs (chemin destination OK via upload_path).
 [BUG-MINEUR] links counter non persisté entre redémarrages.
 [BUG-MINEUR] OSX info/ps/netstat non implémentés nativement.
 [BUG-MINEUR] Link::external_ip toujours vide.

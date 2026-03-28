@@ -209,7 +209,7 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 | 0.5 | Robustness, factorization debt | ✅ Done |
 | 1 | Per-implant keys, payload encryption, string obfuscation | ✅ Done |
 | 1.5 | Code factorization (run_c2_loop), mutex hardening | ✅ Done |
-| 1.6 | Cargo.toml cleanup, CLAUDE.md update, CLI UX | 🟡 In progress |
+| 1.6 | Cargo.toml cleanup, CLAUDE.md update, CLI UX | ✅ Done |
 | 2.2 | Build profiles (release + release-shellcode), implant size | ✅ Done |
 | 2.6 | `--shellcode` flag: `.bin` via objcopy (Linux), PE (Windows) | ✅ Done |
 | 2.x | Malleable profiles, indirect syscalls, AMSI/ETW bypass | ⬜ Planned |
