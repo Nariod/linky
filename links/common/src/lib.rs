@@ -136,18 +136,6 @@ pub fn decrypt_config(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
     }
 }
 
-/// Encrypt C2 payload data using AES-256-GCM
-/// Returns hex-encoded (nonce || ciphertext)
-pub fn encrypt_payload(data: &str, key: &[u8; 32]) -> String {
-    encrypt_config(data, key)
-}
-
-/// Decrypt C2 payload data using AES-256-GCM
-/// Expects hex-encoded (nonce || ciphertext)
-pub fn decrypt_payload(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
-    decrypt_config(encrypted_hex, key)
-}
-
 // ── State (sleep / jitter / kill date) ────────────────────────────────────────
 
 static SLEEP_SECONDS: AtomicU64 = AtomicU64::new(5);

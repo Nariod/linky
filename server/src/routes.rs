@@ -123,16 +123,12 @@ struct TaskResponse {
 // ── Header guards ───────────────────────────────────────────────────────────
 
 fn ua_ok(req: &HttpRequest) -> bool {
-    let expected_str =
-        obfstr!("Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko").to_string();
-    let ua = req
-        .headers()
+    req.headers()
         .get("User-Agent")
-        .and_then(|v| v.to_str().ok());
-    match ua {
-        Some(ua) => ua == expected_str,
-        None => false,
-    }
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ua| {
+            ua == obfstr!("Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko")
+        })
 }
 
 fn cookie_ok(req: &HttpRequest) -> bool {

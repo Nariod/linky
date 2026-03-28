@@ -7,3 +7,15 @@ members = [
     "links/common",
 ]
 resolver = "2"
+
+# Profil standard release avec optimisations taille
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+
+# Profil dédié shellcode : taille minimale absolue
+[profile.release-shellcode]
+inherits = "release"
+panic = "abort"

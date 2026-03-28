@@ -133,6 +133,7 @@ Validation à chaque stage :
 
 ## Bugs connus
 
-- **File upload** : les implants ignorent `task.upload` / `task.upload_path` — le contenu n'est pas transmis.
-- **Linux get_interface_ip()** : parsing de `/proc/net/fib_trie` fragile.
-- **macOS** : stub sans encryption, jitter, file ops, ou kill date.
+- **File upload** : le parsing `upload <content> <path>` dans `dispatch_common` splitte sur le premier espace. Un chemin de destination avec espaces cassera la commande.
+- **macOS** : `info`, `ps`, `netstat` non implémentés nativement dans `dispatch()` — tombent en fallback `shell_exec()`.
+- **Link counter** : non persisté entre redémarrages serveur — les noms recommencent à `link-1`.
+- **Link::external_ip** : toujours vide (non rempli au register).
