@@ -97,12 +97,18 @@ Each implant has a **unique AES-256-GCM key** derived from a per-implant secret 
 ### Main menu
 ```
 linky> help
-  links                    Manage active links
-  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)
-  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)
-  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)
-  help                     Show this help
-  exit / kill              Quit linky
+  links                                  Manage active links
+  generate <ip:port> [--shellcode]       Build Windows implant (x86_64-pc-windows-gnu)
+  generate-linux <ip:port> [--shellcode] Build Linux implant   (x86_64-unknown-linux-musl)
+  generate-osx <ip:port> [--shellcode]   Build macOS implant   (x86_64-apple-darwin)
+  help                                   Show this help
+  exit / kill                            Quit linky
+
+  --shellcode   Produce minimal .bin via objcopy (Linux/macOS).
+                Windows: produces a PE — use sRDI/Donut for PIC conversion.
+                Uses release-shellcode profile (panic=abort, lto, opt-level=z).
+
+  LINKY_OUTPUT_DIR  Output directory for generated implants (default: .)
 ```
 
 ### Link interaction
@@ -123,9 +129,9 @@ linky> help
   ── Operational ──────────────────────────────────────
   sleep <s> [jitter%]      Polling interval (e.g. sleep 30 20)
   killdate <date|clear>    Auto-exit date (e.g. killdate 2026-12-31)
-  ── Windows only ─────────────────────────────────────
+  ── Windows ──────────────────────────────────────────
   integrity                Token integrity level
-  inject <pid> <b64>       Shellcode injection into PID
+  inject <pid> <b64>       Inject base64 shellcode into PID
   ── Session ──────────────────────────────────────────
   kill                     Send exit + mark link dead
   back                     Return to links menu
@@ -203,8 +209,10 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 | 0.5 | Robustness, factorization debt | ✅ Done |
 | 1 | Per-implant keys, payload encryption, string obfuscation | ✅ Done |
 | 1.5 | Code factorization (run_c2_loop), mutex hardening | ✅ Done |
-| 1.6 | Cargo.toml cleanup, CLAUDE.md update | 🔴 Next |
-| 2 | Malleable profiles, binary size, indirect syscalls, AMSI/ETW | ⬜ Planned |
+| 1.6 | Cargo.toml cleanup, CLAUDE.md update, CLI UX | 🟡 In progress |
+| 2.2 | Build profiles (release + release-shellcode), implant size | ✅ Done |
+| 2.6 | `--shellcode` flag: `.bin` via objcopy (Linux), PE (Windows) | ✅ Done |
+| 2.x | Malleable profiles, indirect syscalls, AMSI/ETW bypass | ⬜ Planned |
 | 3 | Persistence (Linux+Windows), SOCKS proxy, op logging | ⬜ Planned |
 | 4 | Integration tests, CI hardening, macOS alignment | ⬜ Planned |
 

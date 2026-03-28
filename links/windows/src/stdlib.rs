@@ -183,8 +183,9 @@ fn list_processes() -> String {
     }
 
     let output_str = String::from_utf8_lossy(&output.stdout);
+    // tasklist /FO CSV /NH columns: Name, PID, Session Name, Session#, Mem Usage
     format!(
-        "PID\tPPID\tUSER\t\tCOMMAND\n{}",
+        "Name\tPID\tSession\tSession#\tMem Usage\n{}",
         output_str.replace(',', "\t")
     )
 }

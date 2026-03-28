@@ -30,5 +30,3 @@ aes-gcm     = "0.10"
 obfstr      = "0.4"
 
 
-[dev-dependencies]
-criterion = "0.8"

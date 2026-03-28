@@ -124,7 +124,7 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                         }
                     }
                     "back" | "exit" | "q" => break,
-                    "generate" | "generate-linux" | "links" | "kill" | "quit" => {
+                    "generate" | "generate-linux" | "generate-osx" | "links" | "kill" | "quit" => {
                         ui::print(&format!(
                             "'{}' is a top-level command. Type 'back' to return to the main menu first.",
                             cmd
@@ -349,19 +349,20 @@ pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
 
     for task in &mut link.tasks {
         if task.status == TaskStatus::Completed && !task.displayed {
-            const OUTPUT_BOX_WIDTH: usize = 54;
+            const MIN_BOX_WIDTH: usize = 54;
             let now = Local::now().format("%H:%M:%S");
             let header_text = format!("═ {} · {} · {} ", link_name, task.cli_command, now);
-            let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+            let box_width = header_text.chars().count().max(MIN_BOX_WIDTH);
+            let pad = box_width - header_text.chars().count();
 
             if task.output.is_empty() {
                 ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
                 ui::print(&format!("║ {} (no output)", task.cli_command));
-                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(box_width)));
             } else {
                 ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
                 ui::print(&format!("║ {}", task.output));
-                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(box_width)));
             }
 
             task.displayed = true;
@@ -456,15 +457,18 @@ fn parse_generate_args(args: &str) -> (String, bool) {
 }
 
 fn print_help() {
-    ui::print("  links                              Manage active links");
-    ui::print("  generate <ip:port> [--shellcode]    Build Windows implant");
-    ui::print("  generate-linux <ip:port> [--shellcode]  Build Linux implant");
-    ui::print("  generate-osx <ip:port> [--shellcode]    Build macOS implant");
-    ui::print("  help                               Show this help");
-    ui::print("  exit / kill                        Quit linky");
+    ui::print("  links                                  Manage active links");
+    ui::print("  generate <ip:port> [--shellcode]       Build Windows implant");
+    ui::print("  generate-linux <ip:port> [--shellcode] Build Linux implant");
+    ui::print("  generate-osx <ip:port> [--shellcode]   Build macOS implant");
+    ui::print("  help                                   Show this help");
+    ui::print("  exit / kill                            Quit linky");
     ui::print("");
-    ui::print("  --shellcode : produce minimal .bin for dropper integration");
-    ui::print("                (uses release-shellcode profile, objcopy extraction)");
+    ui::print("  --shellcode   Produce minimal .bin via objcopy (Linux/macOS)");
+    ui::print("                or PE copy (Windows — use sRDI/Donut for PIC).");
+    ui::print("                Uses release-shellcode profile (panic=abort, lto).");
+    ui::print("");
+    ui::print("  LINKY_OUTPUT_DIR  Output directory for generated implants (default: .)");
 }
 
 fn print_link_help(platform: &str) {

