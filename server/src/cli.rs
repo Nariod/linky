@@ -194,7 +194,23 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
         let prompt = {
             let l = links.lock().unwrap_or_else(|e| e.into_inner());
             l.get_link(link_id)
-                .map(|lk| format!("{}> ", lk.name))
+                .map(|lk| {
+                    let os_tag = match lk.platform.as_str() {
+                        "windows" => "win",
+                        p if p.contains("linux")
+                            || p.contains("Linux")
+                            || p.contains("Ubuntu")
+                            || p.contains("Debian")
+                            || p.contains("Fedora")
+                            || p.contains("CentOS") =>
+                        {
+                            "lnx"
+                        }
+                        p if p.contains("macOS") || p.contains("Mac") => "osx",
+                        _ => "???",
+                    };
+                    format!("{}|{}> ", lk.name, os_tag)
+                })
                 .unwrap_or_else(|| "link> ".into())
         };
 
@@ -208,7 +224,15 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                 let (cmd, args) = split_first(&line);
 
                 match cmd {
-                    "help" => print_link_help(),
+                    "help" => {
+                        let platform = links
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .get_link(link_id)
+                            .map(|l| l.platform.clone())
+                            .unwrap_or_default();
+                        print_link_help(&platform);
+                    }
                     "back" | "exit" => break,
                     "info" => show_info(links, link_id),
                     "kill" => {
@@ -443,11 +467,15 @@ fn print_help() {
     ui::print("                (uses release-shellcode profile, objcopy extraction)");
 }
 
-fn print_link_help() {
+fn print_link_help(platform: &str) {
+    let is_win = platform == "windows";
+
     ui::print("  ── Execution ────────────────────────────────────────");
-    ui::print("  shell <cmd>              Send raw command string");
-    ui::print("  cmd <args>               Execute via cmd.exe /C        (Windows only)");
-    ui::print("  powershell <args>        Execute via powershell.exe     (Windows only)");
+    ui::print("  shell <cmd>              Run via /bin/sh (Linux/macOS) or cmd.exe (Windows)");
+    if is_win {
+        ui::print("  cmd <args>               Execute via cmd.exe /C");
+        ui::print("  powershell <args>        Execute via powershell.exe");
+    }
     ui::print("  ── Navigation ───────────────────────────────────────");
     ui::print("  ls [path]                List directory");
     ui::print("  cd <path>                Change directory");
@@ -456,7 +484,7 @@ fn print_link_help() {
     ui::print("  pid                      Process ID");
     ui::print("  ── Reconnaissance ───────────────────────────────────");
     ui::print("  info                     Detailed system information");
-    ui::print("  ps                       List running processes      (Linux/macOS: /proc, Windows: tasklist)");
+    ui::print("  ps                       List running processes");
     ui::print("  netstat                  List network connections");
     ui::print("  ── File transfer ────────────────────────────────────");
     ui::print("  download <path>          Download file from implant");
@@ -464,9 +492,11 @@ fn print_link_help() {
     ui::print("  ── Operational ──────────────────────────────────────");
     ui::print("  sleep <s> [jitter%]      Set polling interval (e.g. sleep 30 20)");
     ui::print("  killdate <date|clear>    Set auto-exit date   (e.g. killdate 2026-12-31)");
-    ui::print("  ── Windows only ─────────────────────────────────────");
-    ui::print("  integrity                Token integrity level");
-    ui::print("  inject <pid> <b64>       Inject base64 shellcode into PID");
+    if is_win {
+        ui::print("  ── Windows ──────────────────────────────────────────");
+        ui::print("  integrity                Token integrity level");
+        ui::print("  inject <pid> <b64>       Inject base64 shellcode into PID");
+    }
     ui::print("  ── Session ──────────────────────────────────────────");
     ui::print("  kill                     Send exit + mark link dead");
     ui::print("  back                     Return to links menu");

@@ -3,29 +3,154 @@
  Mis à jour le 2026-03-28 (post audit quotidien #5)
 ================================================================================
 
-SPRINTS 0 à 1.5 — ✅ TOUS COMPLÉTÉS
+PHILOSOPHIE
+───────────
+  • KISS — solution la plus simple qui fonctionne.
+  • MVP  — livrer un C2 utilisable en engagement réel.
 
-SPRINT 1.6 — NETTOYAGE POST-REFACTOR (~30 min)
-  [✅] 1.6.1  Cargo.toml implants : dépendances orphelines
-  [✅] 1.6.2  CLAUDE.md bugs connus périmés
-  [✅] 1.6.3  generate.rs derive_key_sha256 : &str → &[u8]
-  [✅] 1.6.4  routes.rs ua_ok() : allocation heap inutile
-  [✅] 1.6.5  link-common : supprimer encrypt_payload/decrypt_payload
+Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
 
-SPRINT 2 — OPSEC (~2 semaines)
-  [✅] 2.2  Profils release + release-shellcode (taille < 2 MB)
-  [✅] 2.6  Flag --shellcode pour generate (objcopy, .bin output)
-  [ ] 2.1/2.3/2.4/2.5
 
-SPRINT 3 — CAPACITÉS OPÉRATIONNELLES
-  [ ] 3.1-3.6
+================================================================================
+ SPRINTS 0 à 1.5 — ✅ TOUS COMPLÉTÉS
+================================================================================
 
-SPRINT 4 — TESTS
-  [ ] 4.1-4.4
 
-BACKLOG — B.9 sRDI intégré, B.26 cdylib Windows + DllMain
+================================================================================
+ SPRINT 1.6 — NETTOYAGE POST-REFACTOR (P1 qualité, ~45 min)
+================================================================================
 
-BUGS CONNUS : upload espaces, links counter, osx dispatch
+[🟡] 1.6.1  CARGO.TOML DES IMPLANTS — DÉPENDANCES ORPHELINES
+         linux/Cargo.toml : garder uniquement link-common + obfstr
+         osx/Cargo.toml   : garder uniquement link-common + obfstr
+         windows/Cargo.toml : garder link-common + base64 + num_cpus + obfstr
+         + deps windows/winapi
 
-Voir prompt-mistral-sprint-1.6-2.6.md pour le détail complet.
+[🟡] 1.6.2  CLAUDE.md — BUGS CONNUS PÉRIMÉS
+
+[✅] 1.6.3  generate.rs derive_key_sha256 — ALIGNER SUR &[u8]
+         Item 1.5.10 a oublié cette fonction.
+
+[✅] 1.6.4  routes.rs ua_ok() — ALLOCATION HEAP INUTILE
+         obfstr!(...).to_string() à chaque requête HTTP.
+         FIX : comparer directement via Deref sans .to_string().
+
+[✅] 1.6.5  link-common — SUPPRIMER ALIAS encrypt_payload/decrypt_payload
+         Code mort depuis run_c2_loop (1.5.1).
+
+[🟡] 1.6.6  CLI — RÉORGANISER LE HELP DU MENU LINK (UX)
+         Problème : les commandes Windows sont dispersées à deux endroits
+         dans print_link_help() :
+           - "Execution" → cmd, powershell (avec "(Windows only)")
+           - "Windows only" → integrity, inject
+         Un opérateur sur un link Linux voit des commandes inutiles mélangées.
+         FIX (2 améliorations) :
+         a) print_link_help() prend la plateforme en paramètre et n'affiche
+            les commandes Windows (cmd, powershell, integrity, inject) que
+            si le link est Windows. cmd et powershell rejoignent la section
+            "Execution" (affichée seulement sur Windows). integrity et inject
+            vont dans une section "Windows" unique (au lieu de l'ancienne
+            section "Windows only" séparée).
+         b) Le prompt passe de "link-1> " à "link-1|lnx> " ou "link-1|win> "
+            pour que l'opérateur voie toujours la plateforme sans taper info.
+         Fichier : server/src/cli.rs
+         Difficulté : faible (~15 min)
+
+
+================================================================================
+ SPRINT 2 — OPSEC MINIMUM VIABLE (P1, ~2 semaines)
+================================================================================
+
+[🟡] 2.2  OPTIMISER LA TAILLE DES IMPLANTS
+         [profile.release] opt-level="z", lto=true, codegen-units=1, strip=true
+         [profile.release-shellcode] inherits="release", panic="abort"
+         Objectif : < 2 MB (actuellement ~8 MB).
+
+[✅] 2.6  FLAG --SHELLCODE POUR GENERATE
+         generate-linux 10.0.0.1:8443 --shellcode → link-linux.bin
+         - Profil release-shellcode
+         - Linux : objcopy -O binary pour extraction PIC
+         - Windows : PE minimal (sRDI futur item B.9)
+         - Le dropper externe gère l'évasion
+
+[ ] 2.1  PROFILS C2 CONFIGURABLES À LA GÉNÉRATION
+[ ] 2.3  INDIRECT SYSCALLS POUR L'INJECTION (Windows)
+[ ] 2.4  AMSI PATCH (Windows)
+[ ] 2.5  ETW PATCH (Windows)
+
+
+================================================================================
+ SPRINT 3 — CAPACITÉS OPÉRATIONNELLES (P1)
+================================================================================
+
+[ ] 3.1  PERSISTENCE LINUX
+[ ] 3.2  PERSISTENCE WINDOWS
+[ ] 3.3  SOCKS5 PROXY
+[ ] 3.4  COMMANDE "env"
+[ ] 3.5  LOGGING STRUCTURÉ
+[ ] 3.6  MULTI-LISTENER
+
+
+================================================================================
+ SPRINT 4 — TESTS & QUALITÉ (P1)
+================================================================================
+
+[ ] 4.1  TESTS D'INTÉGRATION PROTOCOLE C2
+[ ] 4.2  TESTS UNITAIRES ROUTES
+[ ] 4.3  CI/CD COMPLET
+[~] 4.4  ALIGNER LES FEATURES OSX (reste : info, ps, netstat)
+[✅] 4.5  TESTS UNITAIRES link-common
+
+
+================================================================================
+ BACKLOG POST-MVP (P2/P3) — highlights
+================================================================================
+
+[ ] B.9   CONVERSION sRDI INTÉGRÉE (DLL → PIC shellcode Windows)
+[ ] B.26  CDYLIB WINDOWS + DllMain (prérequis B.9)
+[ ] B.1-B.25, C.1-C.12 (inchangé)
+
+
+================================================================================
+ BUGS CONNUS (actifs)
+================================================================================
+
+[BUG] File upload : espaces dans chemin de destination cassent le parsing.
+[BUG-MINEUR] links counter non persisté entre redémarrages.
+[BUG-MINEUR] OSX info/ps/netstat non implémentés nativement.
+[BUG-MINEUR] Link::external_ip toujours vide.
+
+
+================================================================================
+ ORDRE D'EXÉCUTION RECOMMANDÉ
+================================================================================
+
+  Phase 1 — Nettoyage + UX (Sprint 1.6, ~45 min)
+  ────────────────────────────────────────────────
+  1. 1.6.1 : Cargo.toml linux/osx/windows
+  2. 1.6.4 : ua_ok() allocation
+  3. 1.6.3 : derive_key_sha256 signature
+  4. 1.6.5 : supprimer encrypt_payload/decrypt_payload
+  5. 1.6.6 : réorganiser help link + prompt plateforme
+  6. 1.6.2 : CLAUDE.md
+
+  Phase 2 — Taille + Shellcode (~2h)
+  ───────────────────────────────────
+  7. 2.2 : profils release + release-shellcode
+  8. 2.6 : --shellcode flag
+
+  Phase 3 — Quick wins (~1h)
+  ──────────────────────────
+  9.  3.4 : commande "env"
+  10. 4.4 : osx info/ps/netstat
+
+  Phase 4 — Tests + capacités
+  ────────────────────────────
+  11. 4.1 + 4.2 : tests
+  12. 3.1 + 3.2 : persistence
+  13. 3.5 : logging
+
+
+================================================================================
+ FIN DU TODO
 ================================================================================
