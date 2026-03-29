@@ -9,7 +9,12 @@
       "Bash(cargo update:*)",
       "Bash(cargo audit:*)",
       "Bash(cargo check:*)",
-      "Bash(cargo fmt:*)"
+      "Bash(cargo fmt:*)",
+      "Bash(podman:*)",
+      "Bash(curl -sk https://localhost:8443/)",
+      "Bash(UA=\"Mozilla/5.0 \\(Windows NT 6.1; WOW64; Trident/7.0; rv:11.0\\) like Gecko\" __NEW_LINE_8cc9b61fb62d75cc__ echo \"=== Test 1: GET / \\(decoy\\) ===\" curl -sk https://localhost:8443/ -w \"\\\\nStatus: %{http_code}\\\\n\" __NEW_LINE_8cc9b61fb62d75cc__ echo \"\" echo \"=== Test 2: Stage 1 — wrong UA → 404 ===\" curl -sk https://localhost:8443/js -w \"Status: %{http_code}\\\\n\" __NEW_LINE_8cc9b61fb62d75cc__ echo \"\" echo \"=== Test 3: Stage 1 — correct UA → cookie ===\" curl -sk https://localhost:8443/js -H \"User-Agent: $UA\" -v)",
+      "Bash(curl -sk --max-time 5 https://localhost:8443/ -w \"%{http_code}\")",
+      "Bash(curl -sk --max-time 5 -o /dev/null -w \"%{http_code}\" https://127.0.0.1:8443/)"
     ]
   },
   "project": {
