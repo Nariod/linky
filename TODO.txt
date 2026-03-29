@@ -1,265 +1,161 @@
 ================================================================================
  LINKY C2 FRAMEWORK — TODO / ROADMAP
- Approche KISS · MVP · Idiomatic Rust
- Mis à jour le 2026-03-27 (post audit quotidien #4)
+ Mis à jour le 2026-03-28 (post audit quotidien #5)
 ================================================================================
 
 PHILOSOPHIE
 ───────────
-Ce roadmap suit deux principes :
-  • KISS — chaque feature doit être la solution la plus simple qui fonctionne.
-  • MVP  — livrer un C2 utilisable en engagement réel, pas un clone de Mythic.
-
-Linky ne vise PAS la parité avec Sliver/Mythic/Havoc. L'avantage compétitif est :
-  1. Rust natif (pas de Go/Python runtime, RE plus difficile)
-  2. Codebase lisible et auditable (~2k LOC vs ~50k pour Sliver)
-  3. Déploiement conteneurisé en 3 commandes
+  • KISS — solution la plus simple qui fonctionne.
+  • MVP  — livrer un C2 utilisable en engagement réel.
 
 Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
 
-ÉTAT DE L'ART C2 2026 — OÙ SE SITUE LINKY
-───────────────────────────────────────────
-  Critère              Linky   Sliver  Mythic  Havoc
-  ─────────────────────────────────────────────────
-  Transport crypto      2/10   9/10    9/10    8/10
-  Payload crypto        5/10   9/10    9/10    8/10   ← AES-256-GCM fonctionnel
-  Évasion EDR           0/10   8/10    7/10    9/10
-  Multi-protocole       1/10   9/10    10/10   6/10
-  Post-exploitation     2/10   8/10    10/10   8/10
-  Multi-plateforme      6/10   10/10   10/10   7/10   ← macOS aligné (run_c2_loop)
-  Persistence           0/10   7/10    9/10    7/10
-  Collaboration         0/10   9/10    10/10   7/10
-  GUI/UX                2/10   7/10    10/10   9/10
-  CI/Tests              3/10   9/10    8/10    6/10
 
-Score global Linky : ~23%. Objectif MVP : ~50%.
+================================================================================
+ SPRINTS 0 à 1.5 — ✅ TOUS COMPLÉTÉS
+================================================================================
 
 
 ================================================================================
- SPRINT 0 — NETTOYAGE & DETTE TECHNIQUE (P0) ✅ COMPLÉTÉ
+ SPRINT 1.6 — NETTOYAGE POST-REFACTOR (P1 qualité, ~45 min)
 ================================================================================
 
-[✅] 0.1–0.11 Tous items complétés.
+[✅] 1.6.1  CARGO.TOML DES IMPLANTS — DÉPENDANCES ORPHELINES
+         linux/Cargo.toml : garder uniquement link-common + obfstr
+         osx/Cargo.toml   : garder uniquement link-common + obfstr
+         windows/Cargo.toml : garder link-common + base64 + num_cpus + obfstr
+         + deps windows/winapi
 
+[✅] 1.6.2  CLAUDE.md — BUGS CONNUS PÉRIMÉS
 
-================================================================================
- SPRINT 0.5 — DETTE TECHNIQUE DÉCOUVERTE (P0) ✅ COMPLÉTÉ
-================================================================================
+[✅] 1.6.3  generate.rs derive_key_sha256 — ALIGNER SUR &[u8]
+         Item 1.5.10 a oublié cette fonction.
 
-[✅] 0.5.1–0.5.9 Tous items complétés.
+[✅] 1.6.4  routes.rs ua_ok() — ALLOCATION HEAP INUTILE
+         obfstr!(...).to_string() à chaque requête HTTP.
+         FIX : comparer directement via Deref sans .to_string().
 
+[✅] 1.6.5  link-common — SUPPRIMER ALIAS encrypt_payload/decrypt_payload
+         Code mort depuis run_c2_loop (1.5.1).
 
-================================================================================
- SPRINT 1 — SÉCURITÉ FONDAMENTALE (P0) ✅ COMPLÉTÉ
-================================================================================
-
-[✅] 1.0.1  DÉRIVATION DE CLÉ INCOMPATIBLE SERVEUR ↔ IMPLANTS
-[✅] 1.0.2  CALLBACK JAMAIS CHIFFRÉ À LA GÉNÉRATION
-[✅] 1.0.3  ZEROIZE INEFFICACE DANS LINK-COMMON
-[✅] 1.0.4  NaiveDateTime::parse_from_str AVEC FORMATS DATE-ONLY
-[✅] 1.0.5  DÉSÉRIALISATION IMPOSSIBLE DU PAYLOAD CHIFFRÉ
-[✅] 1.0.6  DOUBLE AFFICHAGE DES RÉSULTATS DE TÂCHES
-[✅] 1.0.7  OUTPUT DES TÂCHES DOWNLOAD ÉCRASÉ PAR complete_task()
-[✅] 1.1   CLÉ UNIQUE PAR IMPLANT À LA GÉNÉRATION
-[✅] 1.2   CHIFFREMENT DES PAYLOADS C2 (stage 3) — AES-256-GCM bout-en-bout
-[✅] 1.3   OBFUSCATION DES STRINGS STATIQUES (routes, cookie, UA, IMPLANT_UA)
-[✅] 1.4   ZEROIZE LES CLÉS EN MÉMOIRE
-
-
-================================================================================
- SPRINT 1.5 — DETTE TECHNIQUE ✅ COMPLÉTÉ
-================================================================================
-
-[✅] 1.5.1  FACTORISER link_loop() DANS LINK-COMMON
-         run_c2_loop() implémentée dans links/common/src/lib.rs.
-         Chaque stdlib.rs réduit à ~60-80 LOC (dispatch + helpers système).
-         Impact : ~-300 LOC, boucle C2 maintenue en un seul endroit.
-
-[✅] 1.5.2  IMPL DEFAULT POUR TaskResponse (déjà présent)
-
-[✅] 1.5.3  MUTEX .unwrap() DANS CLI
-         Toutes les occurrences remplacées par .unwrap_or_else(|e| e.into_inner()).
-
-[✅] 1.5.4  CallbackPayload DÉFINI DANS LA BOUCLE
-         Résolu par 1.5.1 — struct défini une fois dans lib.rs.
-
-[✅] 1.5.5  LinkyError::From<anyhow::Error> PERD L'INFORMATION (accepté, mineur)
-
-[✅] 1.5.6  TRACING INITIALISÉ AVEC FILTRE "off" → "warn"
-
-[✅] 1.5.7  COMMENTAIRE TROMPEUR DANS stage3_handler
-         Corrigé : "3 Mutex acquisitions max par requête" avec détail des 3 locks.
-
-[✅] 1.5.8  encrypt_payload/decrypt_payload ALIAS INUTILES
-         Résolu par 1.5.1 — run_c2_loop appelle encrypt_config directement.
-
-[✅] 1.5.9  split_first() DUPLIQUÉ
-         Commentaire de synchronisation ajouté dans cli.rs et lib.rs.
-
-[✅] 1.5.10 SIGNATURE derive_key INCOHÉRENTE
-         Alignée sur &[u8] dans les deux (routes.rs + link-common).
-
-
-================================================================================
- SPRINT 1.6 — NETTOYAGE POST-REFACTOR (P1 qualité, ~1h)
-================================================================================
-
-[🟡] 1.6.1  CARGO.TOML DES IMPLANTS — DÉPENDANCES ORPHELINES
-         Depuis la factorisation 1.5.1, les Cargo.toml de linux/windows/osx
-         déclarent des dépendances dont le code est maintenant dans link-common :
-           - aes-gcm  : plus utilisé directement dans stdlib.rs
-           - sha2     : idem
-           - hex      : idem
-           - rand     : idem (sauf windows pour random dans inject)
-           - chrono   : idem
-           - serde    + serde_json : idem (sauf windows pour base64 inject)
-         Le compilateur peut les garder silencieusement via link-common,
-         mais elles gonflent inutilement le temps de compilation.
-         FIX : retirer les dépendances non utilisées directement dans stdlib.rs.
-         Vérifier avec `cargo +nightly udeps -p link-linux` etc.
-         Fichiers : links/linux/Cargo.toml, links/osx/Cargo.toml
-                    (links/windows/Cargo.toml garde base64 pour inject_cmd)
-         Difficulté : triviale (~10 min)
-
-[🟡] 1.6.2  CLAUDE.md — BUGS CONNUS PÉRIMÉS
-         La section "Bugs connus" de CLAUDE.md liste encore :
-           - "File upload : les implants ignorent task.upload / task.upload_path"
-             → FAUX depuis run_c2_loop (upload géré)
-           - "Linux get_interface_ip() : parsing fragile"
-             → FAUX depuis fix 0.5.x (ip addr show)
-           - "macOS : stub sans encryption, jitter, file ops, ou kill date"
-             → FAUX depuis 1.5.1 (run_c2_loop)
-         FIX : mettre à jour CLAUDE.md section "Bugs connus".
-         Difficulté : triviale (3 suppressions + 1 ajout)
+[✅] 1.6.6  CLI — RÉORGANISER LE HELP DU MENU LINK (UX)
+         Problème : les commandes Windows sont dispersées à deux endroits
+         dans print_link_help() :
+           - "Execution" → cmd, powershell (avec "(Windows only)")
+           - "Windows only" → integrity, inject
+         Un opérateur sur un link Linux voit des commandes inutiles mélangées.
+         FIX (2 améliorations) :
+         a) print_link_help() prend la plateforme en paramètre et n'affiche
+            les commandes Windows (cmd, powershell, integrity, inject) que
+            si le link est Windows. cmd et powershell rejoignent la section
+            "Execution" (affichée seulement sur Windows). integrity et inject
+            vont dans une section "Windows" unique (au lieu de l'ancienne
+            section "Windows only" séparée).
+         b) Le prompt passe de "link-1> " à "link-1|lnx> " ou "link-1|win> "
+            pour que l'opérateur voie toujours la plateforme sans taper info.
+         Fichier : server/src/cli.rs
+         Difficulté : faible (~15 min)
 
 
 ================================================================================
  SPRINT 2 — OPSEC MINIMUM VIABLE (P1, ~2 semaines)
 ================================================================================
 
+[🟡] 2.2  OPTIMISER LA TAILLE DES IMPLANTS
+         [profile.release] opt-level="z", lto=true, codegen-units=1, strip=true
+         [profile.release-shellcode] inherits="release", panic="abort"
+         Objectif : < 2 MB (actuellement ~8 MB).
+
+[✅] 2.6  FLAG --SHELLCODE POUR GENERATE
+         generate-linux 10.0.0.1:8443 --shellcode → link-linux.bin
+         - Profil release-shellcode
+         - Linux : objcopy -O binary pour extraction PIC
+         - Windows : PE minimal (sRDI futur item B.9)
+         - Le dropper externe gère l'évasion
+
 [ ] 2.1  PROFILS C2 CONFIGURABLES À LA GÉNÉRATION
-         User-Agent, routes, cookie name configurables par implant généré.
-
-[ ] 2.2  OPTIMISER LA TAILLE DES IMPLANTS
-         Ajouter dans les Cargo.toml des implants :
-           [profile.release]
-           opt-level = "z"
-           strip = true
-           panic = "abort"
-           lto = true
-           codegen-units = 1
-
 [ ] 2.3  INDIRECT SYSCALLS POUR L'INJECTION (Windows)
 [ ] 2.4  AMSI PATCH (Windows)
 [ ] 2.5  ETW PATCH (Windows)
 
 
 ================================================================================
- SPRINT 3 — CAPACITÉS OPÉRATIONNELLES (P1, ~3 semaines)
+ SPRINT 3 — CAPACITÉS OPÉRATIONNELLES (P1)
 ================================================================================
 
-[ ] 3.1  PERSISTENCE LINUX (crontab + systemd user)
-[ ] 3.2  PERSISTENCE WINDOWS (Registry HKCU Run + schtasks)
-[ ] 3.3  SOCKS5 PROXY INTÉGRÉ
-[ ] 3.4  COMMANDE "env" (std::env::vars(), cross-platform — triviale, ~10 min)
-[ ] 3.5  LOGGING STRUCTURÉ (linky-ops.jsonl append-only)
-[ ] 3.6  MULTI-LISTENER (liste de bind_addr)
-
-
-================================================================================
- SPRINT 4 — TESTS & QUALITÉ (P1, ~1 semaine)
-================================================================================
-
-[ ] 4.1  TESTS D'INTÉGRATION DU PROTOCOLE C2
-         Roundtrip complet : génération implant → enregistrement → commande →
-         résultat, avec vérification du chiffrement/déchiffrement.
-
-[ ] 4.2  TESTS UNITAIRES ROUTES (stage3_handler)
-
-[ ] 4.3  CI/CD COMPLET (ajouter check -p link-osx au workflow GitHub Actions)
-
-[~] 4.4  ALIGNER LES FEATURES OSX
-         run_c2_loop ✅ — Reste : info, ps, netstat dans dispatch() osx.
-
-[✅] 4.5  TESTS UNITAIRES POUR link-common
+[ ] 3.1  PERSISTENCE LINUX
+[ ] 3.2  PERSISTENCE WINDOWS
+[ ] 3.3  SOCKS5 PROXY
+[ ] 3.4  COMMANDE "env"
+[ ] 3.5  LOGGING STRUCTURÉ
+[ ] 3.6  MULTI-LISTENER
 
 
 ================================================================================
- BACKLOG — POST-MVP (P2/P3)
+ SPRINT 4 — TESTS & QUALITÉ (P1)
 ================================================================================
 
-[ ] B.1–B.25 (inchangé)
-[ ] C.1–C.12 (inchangé)
+[✅] 4.1  TESTS D'INTÉGRATION PROTOCOLE C2
+         server/tests/protocol.rs : 16 tests couvrant les 3 stages (UA, cookie,
+         registration, truncation, AES-256-GCM, dispatch, rotation x_request_id,
+         flux complet stage1→stage2→stage3). Nécessite lib.rs (ajouté).
+[✅] 4.2  TESTS UNITAIRES ROUTES
+         routes.rs : truncate_field (5 cas dont UTF-8), parse_file_response (4 cas).
+         cli.rs    : split_first (4), parse_upload_args (6), parse_generate_args (4).
+[✅] 4.3  CI/CD COMPLET
+         .github/workflows/ci.yml : fmt, clippy -D warnings, cargo test --workspace,
+         check implants (musl + mingw), cargo audit. Swatinem/rust-cache.
+[✅] 4.4  ALIGNER LES FEATURES OSX (reste : info, ps, netstat)
+[✅] 4.5  TESTS UNITAIRES link-common
 
 
 ================================================================================
- ITEMS COMPLÉTÉS (résumé)
+ BACKLOG POST-MVP (P2/P3) — highlights
 ================================================================================
 
-[✅] Sprints 0, 0.5, 1, 1.5 complets
-[✅] Tests unitaires link-common (4.5)
-[✅] Séparation messages UI / logs (ui.rs)
-[✅] Gestion couleurs ANSI (IsTerminal)
-[✅] Commande generate-osx
-[✅] Tracing + filtre "warn"
-[✅] Atomiques sleep/jitter/killdate (Linux/Windows/OSX)
-[✅] Kill date / expiration (Linux/Windows/OSX)
-[✅] Configuration embarquée chiffrée (AES-256-GCM)
-[✅] Jitter polling (Linux/Windows/OSX)
-[✅] File download + upload (Linux/Windows + macOS via run_c2_loop)
-[✅] Commandes info/ps/netstat (Linux/Windows)
-[✅] Commande sleep
-[✅] run_c2_loop factorisée dans link-common
-[✅] Validation inputs RegisterRequest (truncate_field)
-[✅] Payload limit actix-web (64 KB)
-[✅] Clé unique par implant (X-Client-ID)
-[✅] get_interface_ip() Linux corrigé (ip addr show)
+[ ] B.9   CONVERSION sRDI INTÉGRÉE (DLL → PIC shellcode Windows)
+[ ] B.26  CDYLIB WINDOWS + DllMain (prérequis B.9)
+[ ] B.1-B.25, C.1-C.12 (inchangé)
 
 
 ================================================================================
  BUGS CONNUS (actifs)
 ================================================================================
 
-[BUG] File upload : le chemin de destination avec des espaces casse le parsing
-      côté implant dans dispatch_common::upload_file(). L'argument est splitté
-      sur le premier espace, pas le dernier.
-
-[BUG-MINEUR] links counter non persisté entre redémarrages serveur.
-
-[BUG-MINEUR] OSX dispatch() : info, ps, netstat non implémentés.
-      Commandes tombent dans shell_exec() → sortie vide sur macOS. → item 4.4
-
-[BUG-MINEUR] Link::external_ip toujours vide. À supprimer ou remplir
-      via une requête à un service tiers (ex: api.ipify.org).
-
-[BUG-MINEUR] Cargo.toml des implants linux/osx déclarent des dépendances
-      (aes-gcm, sha2, hex, rand, chrono) non utilisées directement depuis 1.5.1.
-      → item 1.6.1
+[✅] File upload : espaces dans le chemin local — guillemets supportés ("path with spaces" /remote).
+[BUG-MINEUR] links counter non persisté entre redémarrages.
+[✅] OSX info/ps/netstat — implémentés (info natif via sysctl, ps/netstat via shell).
+[✅] Link::external_ip — rempli depuis l'adresse TCP du pair au moment du register.
 
 
 ================================================================================
- ORDRE D'EXÉCUTION RECOMMANDÉ (PROCHAIN SPRINT)
+ ORDRE D'EXÉCUTION RECOMMANDÉ
 ================================================================================
 
-  Phase 1 — Nettoyage post-refactor (~1h)
-  ────────────────────────────────────────
-  1. Item 1.6.1 : nettoyer Cargo.toml linux/osx (dépendances orphelines)
-  2. Item 1.6.2 : mettre à jour CLAUDE.md bugs connus
+  Phase 1 — Nettoyage + UX (Sprint 1.6, ~45 min)
+  ────────────────────────────────────────────────
+  1. 1.6.1 : Cargo.toml linux/osx/windows
+  2. 1.6.4 : ua_ok() allocation
+  3. 1.6.3 : derive_key_sha256 signature
+  4. 1.6.5 : supprimer encrypt_payload/decrypt_payload
+  5. 1.6.6 : réorganiser help link + prompt plateforme
+  6. 1.6.2 : CLAUDE.md
 
-  Phase 2 — Quick wins (~2h)
+  Phase 2 — Taille + Shellcode (~2h)
+  ───────────────────────────────────
+  7. 2.2 : profils release + release-shellcode
+  8. 2.6 : --shellcode flag
+
+  Phase 3 — Quick wins (~1h)
   ──────────────────────────
-  3. Item 3.4 : commande "env" (triviale)
-  4. Item 2.2 : profil de release optimisé pour les implants
-  5. Item 4.4 : implémenter info/ps/netstat dans osx dispatch()
+  9.  3.4 : commande "env"
+  10. 4.4 : osx info/ps/netstat
 
-  Phase 3 — Capacités opérationnelles
-  ──────────────────────────────────────
-  6. Item 3.5 : logging opérationnel (linky-ops.jsonl)
-  7. Items 3.1 + 3.2 : persistence Linux/Windows
-
-  Phase 4 — Tests
-  ────────────────
-  8. Items 4.1 + 4.2 : tests d'intégration et tests routes
+  Phase 4 — Tests + capacités
+  ────────────────────────────
+  11. 4.1 + 4.2 : tests
+  12. 3.1 + 3.2 : persistence
+  13. 3.5 : logging
 
 
 ================================================================================

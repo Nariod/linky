@@ -2,18 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [ master, link-update ]
+    branches: ["**"]
   pull_request:
-    branches: [ master ]
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Dummy callback required by implant crates at check time
   CALLBACK: "127.0.0.1:8443"
+  IMPLANT_SECRET: "0000000000000000000000000000000000000000000000000000000000000000"
 
 jobs:
   check:
-    name: Check & Test
+    name: Format · Lint · Test · Audit
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,31 +30,38 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y musl-tools mingw-w64
 
-      - name: Add targets
+      - name: Add cross-compilation targets
         run: |
           rustup target add x86_64-pc-windows-gnu
           rustup target add x86_64-unknown-linux-musl
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      # Swatinem/rust-cache handles registry + git + target caching automatically.
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
 
+      # ── Quality gates ──────────────────────────────────────────────────────
       - name: Format check
         run: cargo fmt --all -- --check
 
-      - name: Clippy
+      - name: Clippy (zero warnings)
         run: cargo clippy --workspace -- -D warnings
 
-      - name: Test (server)
-        run: cargo test -p linky
+      # ── Tests ──────────────────────────────────────────────────────────────
+      - name: Unit + integration tests
+        run: cargo test --workspace
 
-      - name: Check implants build
+      # ── Implant cross-check ────────────────────────────────────────────────
+      - name: Check implants compile
         run: |
-          cargo check -p link-linux
-          cargo check -p link-windows
           cargo check -p link-common
+          cargo check -p link-linux  --target x86_64-unknown-linux-musl
+          cargo check -p link-windows --target x86_64-pc-windows-gnu
+
+      # ── Security audit ─────────────────────────────────────────────────────
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Security audit
+        run: cargo audit

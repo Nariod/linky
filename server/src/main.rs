@@ -1,15 +1,5 @@
-mod cli;
-mod error;
-mod generate;
-mod links;
-mod routes;
-mod server;
-mod tasks;
-mod ui;
-
+use linky::{cli, links::Links, server, ui};
 use std::sync::{Arc, Mutex};
-
-use links::Links;
 
 fn main() {
     // Initialize tracing subscriber with minimal output
@@ -55,6 +45,17 @@ fn main() {
             .mark_inactive();
     });
 
-    // CLI runs on the main thread (rustyline is synchronous)
-    cli::run(links);
+    // CLI runs on the main thread (rustyline is synchronous).
+    // In headless/container mode (no TTY), skip the interactive CLI and park
+    // the main thread so the server and GC threads keep running.
+    // Attach a TTY to get the CLI: podman exec -it <container> /app/target/release/linky
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        cli::run(links);
+    } else {
+        ui::print("[*] No TTY detected — running headless. Server active on configured port.");
+        ui::print("    Attach CLI: podman exec -it <container> /app/target/release/linky");
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    }
 }

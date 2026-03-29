@@ -7,6 +7,13 @@ edition = "2021"
 name = "linky"
 path = "src/main.rs"
 
+[lib]
+name = "linky"
+path = "src/lib.rs"
+
+[dev-dependencies]
+actix-rt = "2"
+
 [dependencies]
 actix-web   = { version = "4", features = ["rustls-0_23"] }
 rustls      = "0.23"
@@ -30,5 +37,3 @@ aes-gcm     = "0.10"
 obfstr      = "0.4"
 
 
-[dev-dependencies]
-criterion = "0.8"
