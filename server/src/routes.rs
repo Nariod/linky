@@ -269,6 +269,72 @@ pub async fn stage2_handler(
     HttpResponse::Ok().json(resp)
 }
 
+// ── Unit tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── truncate_field ───────────────────────────────────────────────────────
+
+    #[test]
+    fn truncate_field_short_string_unchanged() {
+        assert_eq!(truncate_field("hello".into(), 10), "hello");
+    }
+
+    #[test]
+    fn truncate_field_at_exact_limit_unchanged() {
+        assert_eq!(truncate_field("hello".into(), 5), "hello");
+    }
+
+    #[test]
+    fn truncate_field_over_limit_truncated() {
+        assert_eq!(truncate_field("hello world".into(), 5), "hello");
+    }
+
+    #[test]
+    fn truncate_field_utf8_boundary_not_split() {
+        // "café" is 5 UTF-8 bytes (c=1, a=1, f=1, é=2).
+        // Truncating at 4 bytes must yield "caf", not split the 2-byte 'é'.
+        let result = truncate_field("café".into(), 4);
+        assert_eq!(result, "caf");
+        assert!(result.is_char_boundary(result.len()));
+    }
+
+    #[test]
+    fn truncate_field_multibyte_fits_exactly() {
+        // "é" is 2 bytes; max=2 → the whole string is kept.
+        assert_eq!(truncate_field("é".into(), 2), "é");
+    }
+
+    // ── parse_file_response ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_file_response_valid() {
+        let (path, content) = parse_file_response("FILE:/path/to/file.txt:aGVsbG8=").unwrap();
+        assert_eq!(path, "/path/to/file.txt");
+        assert_eq!(content, "aGVsbG8=");
+    }
+
+    #[test]
+    fn parse_file_response_windows_path_with_colon() {
+        // Windows paths contain ':', base64 never does — rfind must pick the last ':'.
+        let (path, content) = parse_file_response(r"FILE:C:\Users\test\file.txt:aGVsbG8=").unwrap();
+        assert_eq!(path, r"C:\Users\test\file.txt");
+        assert_eq!(content, "aGVsbG8=");
+    }
+
+    #[test]
+    fn parse_file_response_missing_prefix_returns_none() {
+        assert!(parse_file_response("DATA:/path:aGVsbG8=").is_none());
+    }
+
+    #[test]
+    fn parse_file_response_no_separator_returns_none() {
+        assert!(parse_file_response("FILE:nocolon").is_none());
+    }
+}
+
 /// POST /static/get – Stage 3: task polling / output callback.
 ///
 /// Lock strategy (0.5.7): 3 Mutex acquisitions max par requête.

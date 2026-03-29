@@ -498,6 +498,100 @@ fn print_help() {
     ui::print("  LINKY_OUTPUT_DIR  Output directory for generated implants (default: .)");
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── split_first ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn split_first_with_args() {
+        assert_eq!(split_first("sleep 30"), ("sleep", "30"));
+    }
+
+    #[test]
+    fn split_first_no_args() {
+        assert_eq!(split_first("whoami"), ("whoami", ""));
+    }
+
+    #[test]
+    fn split_first_trims_leading_spaces_in_rest() {
+        assert_eq!(split_first("cd   /tmp"), ("cd", "/tmp"));
+    }
+
+    #[test]
+    fn split_first_empty_string() {
+        assert_eq!(split_first(""), ("", ""));
+    }
+
+    // ── parse_upload_args ────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_upload_args_simple_unquoted() {
+        let (local, remote) = parse_upload_args("/local/file.txt /remote/dest").unwrap();
+        assert_eq!(local, "/local/file.txt");
+        assert_eq!(remote, "/remote/dest");
+    }
+
+    #[test]
+    fn parse_upload_args_quoted_path_with_spaces() {
+        let (local, remote) =
+            parse_upload_args("\"path with spaces/file.txt\" /remote/dest").unwrap();
+        assert_eq!(local, "path with spaces/file.txt");
+        assert_eq!(remote, "/remote/dest");
+    }
+
+    #[test]
+    fn parse_upload_args_empty_returns_none() {
+        assert!(parse_upload_args("").is_none());
+    }
+
+    #[test]
+    fn parse_upload_args_whitespace_only_returns_none() {
+        assert!(parse_upload_args("   ").is_none());
+    }
+
+    #[test]
+    fn parse_upload_args_only_local_no_remote_returns_none() {
+        assert!(parse_upload_args("/local/only").is_none());
+    }
+
+    #[test]
+    fn parse_upload_args_quoted_no_remote_returns_none() {
+        assert!(parse_upload_args("\"path with spaces\"").is_none());
+    }
+
+    // ── parse_generate_args ──────────────────────────────────────────────────
+
+    #[test]
+    fn parse_generate_args_callback_only() {
+        let (cb, sc) = parse_generate_args("10.0.0.1:8443");
+        assert_eq!(cb, "10.0.0.1:8443");
+        assert!(!sc);
+    }
+
+    #[test]
+    fn parse_generate_args_with_shellcode_flag_after() {
+        let (cb, sc) = parse_generate_args("10.0.0.1:8443 --shellcode");
+        assert_eq!(cb, "10.0.0.1:8443");
+        assert!(sc);
+    }
+
+    #[test]
+    fn parse_generate_args_with_shellcode_flag_before() {
+        let (cb, sc) = parse_generate_args("--shellcode 10.0.0.1:8443");
+        assert_eq!(cb, "10.0.0.1:8443");
+        assert!(sc);
+    }
+
+    #[test]
+    fn parse_generate_args_empty_returns_empty_callback() {
+        let (cb, sc) = parse_generate_args("--shellcode");
+        assert_eq!(cb, "");
+        assert!(sc);
+    }
+}
+
 fn print_link_help(platform: &str) {
     let is_win = platform == "windows";
 

@@ -1,15 +1,5 @@
-mod cli;
-mod error;
-mod generate;
-mod links;
-mod routes;
-mod server;
-mod tasks;
-mod ui;
-
+use linky::{cli, links::Links, server, ui};
 use std::sync::{Arc, Mutex};
-
-use links::Links;
 
 fn main() {
     // Initialize tracing subscriber with minimal output

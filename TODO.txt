@@ -95,10 +95,17 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
  SPRINT 4 — TESTS & QUALITÉ (P1)
 ================================================================================
 
-[ ] 4.1  TESTS D'INTÉGRATION PROTOCOLE C2
-[ ] 4.2  TESTS UNITAIRES ROUTES
-[ ] 4.3  CI/CD COMPLET
-[~] 4.4  ALIGNER LES FEATURES OSX (reste : info, ps, netstat)
+[✅] 4.1  TESTS D'INTÉGRATION PROTOCOLE C2
+         server/tests/protocol.rs : 16 tests couvrant les 3 stages (UA, cookie,
+         registration, truncation, AES-256-GCM, dispatch, rotation x_request_id,
+         flux complet stage1→stage2→stage3). Nécessite lib.rs (ajouté).
+[✅] 4.2  TESTS UNITAIRES ROUTES
+         routes.rs : truncate_field (5 cas dont UTF-8), parse_file_response (4 cas).
+         cli.rs    : split_first (4), parse_upload_args (6), parse_generate_args (4).
+[✅] 4.3  CI/CD COMPLET
+         .github/workflows/ci.yml : fmt, clippy -D warnings, cargo test --workspace,
+         check implants (musl + mingw), cargo audit. Swatinem/rust-cache.
+[✅] 4.4  ALIGNER LES FEATURES OSX (reste : info, ps, netstat)
 [✅] 4.5  TESTS UNITAIRES link-common
 
 
