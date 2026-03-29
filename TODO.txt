@@ -115,10 +115,10 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
  BUGS CONNUS (actifs)
 ================================================================================
 
-[BUG-MINEUR] File upload : espaces dans le chemin local (source) cassent le parsing dans cli.rs (chemin destination OK via upload_path).
+[✅] File upload : espaces dans le chemin local — guillemets supportés ("path with spaces" /remote).
 [BUG-MINEUR] links counter non persisté entre redémarrages.
-[BUG-MINEUR] OSX info/ps/netstat non implémentés nativement.
-[BUG-MINEUR] Link::external_ip toujours vide.
+[✅] OSX info/ps/netstat — implémentés (info natif via sysctl, ps/netstat via shell).
+[✅] Link::external_ip — rempli depuis l'adresse TCP du pair au moment du register.
 
 
 ================================================================================

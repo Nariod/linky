@@ -143,18 +143,8 @@ impl Links {
     }
 
     pub fn add_download_task(&mut self, link_id: Uuid, remote_path: String) -> Option<Uuid> {
-        let task = Task {
-            id: Uuid::new_v4(),
-            command: format!("download {}", remote_path),
-            cli_command: format!("download {}", remote_path),
-            status: TaskStatus::Waiting,
-            output: String::new(),
-            displayed: false,
-            file_content: None,
-            file_name: None,
-            upload_content: None,
-            upload_path: None,
-        };
+        let cmd = format!("download {}", remote_path);
+        let task = Task::new(cmd.clone(), cmd);
         let id = task.id;
         self.links
             .iter_mut()
@@ -177,16 +167,12 @@ impl Links {
         };
 
         let task = Task {
-            id: Uuid::new_v4(),
-            command: format!("upload {}", remote_path),
-            cli_command: format!("upload {} {}", local_path, remote_path),
-            status: TaskStatus::Waiting,
-            output: String::new(),
-            displayed: false,
-            file_content: None,
-            file_name: None,
             upload_content: Some(file_content),
-            upload_path: Some(remote_path),
+            upload_path: Some(remote_path.clone()),
+            ..Task::new(
+                format!("upload {}", remote_path),
+                format!("upload {} {}", local_path, remote_path),
+            )
         };
         let id = task.id;
         self.links

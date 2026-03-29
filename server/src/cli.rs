@@ -297,13 +297,12 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                             }
                         }
                     }
-                    "upload" => {
-                        let parts: Vec<&str> = args.split_whitespace().collect();
-                        if parts.len() < 2 {
-                            ui::print("Usage: upload <local_path> <remote_path>");
-                        } else {
-                            let local_path = parts[0].to_string();
-                            let remote_path = parts[1..].join(" ");
+                    "upload" => match parse_upload_args(args) {
+                        None => ui::print(
+                            "Usage: upload <local_path> <remote_path>  \
+                                (quote paths with spaces: \"path/to file\" /remote/dest)",
+                        ),
+                        Some((local_path, remote_path)) => {
                             let mut l = links.lock().unwrap_or_else(|e| e.into_inner());
                             if let Some(id) = l.get_link(link_id).map(|link| link.id) {
                                 if l.add_upload_task(id, local_path, remote_path).is_some() {
@@ -316,7 +315,7 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
                                 }
                             }
                         }
-                    }
+                    },
 
                     // ── Process injection ───────────────────────────────
                     "inject" => {
@@ -440,6 +439,34 @@ fn split_first(s: &str) -> (&str, &str) {
     match s.find(' ') {
         Some(i) => (&s[..i], s[i + 1..].trim_start()),
         None => (s, ""),
+    }
+}
+
+/// Parse upload arguments: `"local path" /remote` or `local /remote`.
+/// Returns `Some((local, remote))` or `None` if the format is invalid.
+fn parse_upload_args(args: &str) -> Option<(String, String)> {
+    let args = args.trim();
+    if args.is_empty() {
+        return None;
+    }
+    if let Some(rest) = args.strip_prefix('"') {
+        // Quoted local path: "path with spaces" /remote/dest
+        let end = rest.find('"')?;
+        let local = rest[..end].to_string();
+        let remote = rest[end + 1..].trim().to_string();
+        if remote.is_empty() {
+            return None;
+        }
+        Some((local, remote))
+    } else {
+        // Unquoted: first whitespace-delimited token is the local path
+        let i = args.find(char::is_whitespace)?;
+        let local = args[..i].to_string();
+        let remote = args[i..].trim_start().to_string();
+        if remote.is_empty() {
+            return None;
+        }
+        Some((local, remote))
     }
 }
 
