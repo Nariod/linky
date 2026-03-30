@@ -560,8 +560,7 @@ where
                 }
             }
             Err(_) => {
-                prev_output = String::new();
-                prev_task_id = String::new();
+                // Ne pas reset : conserver prev_output/prev_task_id pour retransmettre au prochain poll
             }
         }
 
