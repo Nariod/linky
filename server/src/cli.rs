@@ -188,7 +188,9 @@ fn interact(links: &Arc<Mutex<Links>>, link_id: Uuid, rl: &mut DefaultEditor) {
     }
 
     loop {
-        // Display results of completed tasks before showing prompt
+        // Fallback : affiche les tâches complétées mais non encore affichées.
+        // En mode normal, routes.rs affiche en temps réel et marque displayed=true.
+        // Ce fallback couvre le cas headless ou si l'affichage routes.rs a échoué.
         show_completed_task_results(links, link_id);
 
         let prompt = {
