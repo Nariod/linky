@@ -12,17 +12,23 @@ pub async fn start(links: Arc<Mutex<Links>>, bind_addr: &str) -> Result<()> {
     let tls_config = build_tls_config();
     let state = web::Data::new(AppState { links });
 
-    // 0.5.9 — explicit JSON payload limit (64 KB) to prevent OOM from oversized bodies.
-    let json_cfg = web::JsonConfig::default().limit(65_536);
+    // 64 KB limit for registration (lightweight payload).
+    let json_cfg_small = web::JsonConfig::default().limit(65_536);
+    // 16 MB limit for stage 3: file upload payloads are base64-encoded and can be large.
+    let json_cfg_large = web::JsonConfig::default().limit(16 * 1024 * 1024);
 
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            .app_data(json_cfg.clone())
+            .app_data(json_cfg_small.clone())
             .route(s!("/"), web::get().to(ok_handler))
             .route(s!("/js"), web::get().to(stage1_handler))
             .route(s!("/static/register"), web::post().to(stage2_handler))
-            .route(s!("/static/get"), web::post().to(stage3_handler))
+            .service(
+                web::resource(s!("/static/get"))
+                    .app_data(json_cfg_large.clone())
+                    .route(web::post().to(stage3_handler)),
+            )
     })
     .bind_rustls_0_23(bind_addr, tls_config)?
     .run()
