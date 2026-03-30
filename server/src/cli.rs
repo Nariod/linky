@@ -444,30 +444,42 @@ fn split_first(s: &str) -> (&str, &str) {
     }
 }
 
-/// Parse upload arguments: `"local path" /remote` or `local /remote`.
+/// Parse upload arguments: `"local path" /remote`, `'local path' /remote`, or `local /remote`.
 /// Returns `Some((local, remote))` or `None` if the format is invalid.
 fn parse_upload_args(args: &str) -> Option<(String, String)> {
     let args = args.trim();
     if args.is_empty() {
         return None;
     }
+    // Guillemets doubles
     if let Some(rest) = args.strip_prefix('"') {
-        // Quoted local path: "path with spaces" /remote/dest
         let end = rest.find('"')?;
         let local = rest[..end].to_string();
         let remote = rest[end + 1..].trim().to_string();
-        if remote.is_empty() {
-            return None;
-        }
-        Some((local, remote))
+        return if remote.is_empty() {
+            None
+        } else {
+            Some((local, remote))
+        };
+    }
+    // Guillemets simples
+    if let Some(rest) = args.strip_prefix('\'') {
+        let end = rest.find('\'')?;
+        let local = rest[..end].to_string();
+        let remote = rest[end + 1..].trim().to_string();
+        return if remote.is_empty() {
+            None
+        } else {
+            Some((local, remote))
+        };
+    }
+    // Sans guillemets : premier token séparé par un espace
+    let i = args.find(char::is_whitespace)?;
+    let local = args[..i].to_string();
+    let remote = args[i..].trim_start().to_string();
+    if remote.is_empty() {
+        None
     } else {
-        // Unquoted: first whitespace-delimited token is the local path
-        let i = args.find(char::is_whitespace)?;
-        let local = args[..i].to_string();
-        let remote = args[i..].trim_start().to_string();
-        if remote.is_empty() {
-            return None;
-        }
         Some((local, remote))
     }
 }
@@ -561,6 +573,19 @@ mod tests {
     #[test]
     fn parse_upload_args_quoted_no_remote_returns_none() {
         assert!(parse_upload_args("\"path with spaces\"").is_none());
+    }
+
+    #[test]
+    fn parse_upload_args_single_quoted_path_with_spaces() {
+        let (local, remote) =
+            parse_upload_args("'path with spaces/file.txt' /remote/dest").unwrap();
+        assert_eq!(local, "path with spaces/file.txt");
+        assert_eq!(remote, "/remote/dest");
+    }
+
+    #[test]
+    fn parse_upload_args_single_quoted_no_remote_returns_none() {
+        assert!(parse_upload_args("'path with spaces'").is_none());
     }
 
     // ── parse_generate_args ──────────────────────────────────────────────────
