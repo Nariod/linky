@@ -1,6 +1,6 @@
 ================================================================================
  LINKY C2 FRAMEWORK — TODO / ROADMAP
- Mis à jour le 2026-03-28 (post audit quotidien #5)
+ Mis à jour le 2026-03-30 (sprint 5 — corrections bugs B6-1 à B6-9)
 ================================================================================
 
 PHILOSOPHIE
@@ -12,66 +12,138 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
 
 
 ================================================================================
- SPRINTS 0 à 1.5 — ✅ TOUS COMPLÉTÉS
+ SPRINTS 0 à 2.6 — ✅ TOUS COMPLÉTÉS (vérifiés audit #6)
 ================================================================================
 
-
-================================================================================
- SPRINT 1.6 — NETTOYAGE POST-REFACTOR (P1 qualité, ~45 min)
-================================================================================
-
-[✅] 1.6.1  CARGO.TOML DES IMPLANTS — DÉPENDANCES ORPHELINES
-         linux/Cargo.toml : garder uniquement link-common + obfstr
-         osx/Cargo.toml   : garder uniquement link-common + obfstr
-         windows/Cargo.toml : garder link-common + base64 + num_cpus + obfstr
-         + deps windows/winapi
-
-[✅] 1.6.2  CLAUDE.md — BUGS CONNUS PÉRIMÉS
-
-[✅] 1.6.3  generate.rs derive_key_sha256 — ALIGNER SUR &[u8]
-         Item 1.5.10 a oublié cette fonction.
-
-[✅] 1.6.4  routes.rs ua_ok() — ALLOCATION HEAP INUTILE
-         obfstr!(...).to_string() à chaque requête HTTP.
-         FIX : comparer directement via Deref sans .to_string().
-
-[✅] 1.6.5  link-common — SUPPRIMER ALIAS encrypt_payload/decrypt_payload
-         Code mort depuis run_c2_loop (1.5.1).
-
-[✅] 1.6.6  CLI — RÉORGANISER LE HELP DU MENU LINK (UX)
-         Problème : les commandes Windows sont dispersées à deux endroits
-         dans print_link_help() :
-           - "Execution" → cmd, powershell (avec "(Windows only)")
-           - "Windows only" → integrity, inject
-         Un opérateur sur un link Linux voit des commandes inutiles mélangées.
-         FIX (2 améliorations) :
-         a) print_link_help() prend la plateforme en paramètre et n'affiche
-            les commandes Windows (cmd, powershell, integrity, inject) que
-            si le link est Windows. cmd et powershell rejoignent la section
-            "Execution" (affichée seulement sur Windows). integrity et inject
-            vont dans une section "Windows" unique (au lieu de l'ancienne
-            section "Windows only" séparée).
-         b) Le prompt passe de "link-1> " à "link-1|lnx> " ou "link-1|win> "
-            pour que l'opérateur voie toujours la plateforme sans taper info.
-         Fichier : server/src/cli.rs
-         Difficulté : faible (~15 min)
+  Sprint 0–1.5  : Nettoyage, refactor, chiffrement, factorisation
+  Sprint 1.6    : Cargo.toml, CLAUDE.md, ua_ok(), CLI help/prompt platform
+  Sprint 2.2    : Profils release + release-shellcode (dans Cargo.toml)
+  Sprint 2.6    : Flag --shellcode (objcopy Linux, PE Windows)
+  Sprint 4.1–4.5: Tests d'intégration, tests unitaires, CI/CD, OSX, link-common
 
 
 ================================================================================
- SPRINT 2 — OPSEC MINIMUM VIABLE (P1, ~2 semaines)
+ BUGS ACTIFS — DÉCOUVERTS AUDIT #6
 ================================================================================
 
-[🟡] 2.2  OPTIMISER LA TAILLE DES IMPLANTS
-         [profile.release] opt-level="z", lto=true, codegen-units=1, strip=true
-         [profile.release-shellcode] inherits="release", panic="abort"
-         Objectif : < 2 MB (actuellement ~8 MB).
+  [BUG-MINOR] Link counter non persisté entre redémarrages.
 
-[✅] 2.6  FLAG --SHELLCODE POUR GENERATE
-         generate-linux 10.0.0.1:8443 --shellcode → link-linux.bin
-         - Profil release-shellcode
-         - Linux : objcopy -O binary pour extraction PIC
-         - Windows : PE minimal (sRDI futur item B.9)
-         - Le dropper externe gère l'évasion
+  [BUG-MEDIUM] [B6-1] TCP6/UDP6 — hex_to_ip() ne gère que IPv4 (4 octets LE).
+               Les entrées /proc/net/tcp6 ont 8+8 octets little-endian 32 bits
+               par groupe. Le résultat affiché est silencieusement corrompu.
+               Fichier : links/linux/src/stdlib.rs → parse_net_connections()
+               FIX : détecter longueur hex > 8 et appliquer le décodage IPv6.
+
+  [BUG-MINOR]  [B6-2] show_completed_task_results() (cli.rs) est dead code.
+               routes.rs marque task.displayed = true en temps réel avant que
+               la CLI ne vérifie. La fonction ne s'exécute jamais en pratique.
+               FIX : supprimer ou documenter l'intention (fallback headless ?).
+
+  [BUG-MINOR]  [B6-3] Duplication de code crypto en 3 endroits :
+               • links/common/src/lib.rs  → derive_key, encrypt_config, decrypt_config
+               • server/src/routes.rs     → derive_key, encrypt_payload, decrypt_payload
+               • server/src/generate.rs   → derive_key_sha256, encrypt_aes_gcm
+               Risque de divergence silencieuse entre server et implant.
+               FIX : créer une crate interne server/src/crypto.rs (ou un module
+               partagé) et l'utiliser dans routes.rs ET generate.rs.
+
+  [BUG-MINOR]  [B6-4] save_download() utilise un chemin relatif "downloads/" —
+               dépend du CWD au lancement du serveur, non documenté.
+               FIX : utiliser LINKY_OUTPUT_DIR ou un paramètre de config.
+
+  [BUG-MINOR]  [B6-5] run_c2_loop — stage 1 retry loop sans limite ni backoff
+               exponentiel. Un serveur injoignable fait boucler indéfiniment
+               sans délai variable, générant du bruit réseau.
+               FIX : backoff exponentiel (1s→2s→4s→…→max 60s) + max_retries optionnel.
+
+  [BUG-MINOR]  [B6-6] Erreur réseau stage 3 reset les données de la tâche.
+               Sur erreur Err(_), prev_output et prev_task_id sont remis à "".
+               Si le réseau est instable, la sortie de la tâche précédente peut
+               être perdue avant d'avoir été transmise.
+               FIX : conserver prev_output/prev_task_id sur erreur réseau et
+               ne les remettre à "" que sur succès (task.q.is_empty()).
+
+  [BUG-MINOR]  [B6-7] parse_upload_args — guillemets simples non supportés,
+               et chemins Windows (backslash) peuvent poser problème.
+               FIX : supporter 'quotes' et normaliser les séparateurs.
+
+  [BUG-MINOR]  [B6-8] stage3_handler — aucune limite de taille JSON sur /static/get
+               (le JsonConfig 64 KB s'applique à tous les handlers, mais un payload
+               base64 de fichier upload peut légitimement dépasser 64 KB).
+               FIX : augmenter la limite JSON pour /static/get uniquement (ex: 16 MB),
+               ou chunker les transferts de fichiers volumineux.
+
+  [BUG-MINOR]  [B6-9] inject_shellcode utilise std::mem::transmute pour caster
+               un *mut c_void en fn pointer. C'est UB potentiel selon les règles
+               strictes du compilateur Rust pour les raw fn pointers.
+               FIX : utiliser une union ou std::mem::transmute_copy avec type explicite
+               et bloc unsafe documenté SAFETY:.
+
+
+================================================================================
+ SPRINT 5 — ROBUSTESSE MAINTENABILITÉ (P1, ~3h, issu audit #6)
+================================================================================
+
+[✅] 5.1  [B6-3] CENTRALISER LA CRYPTO SERVEUR
+         server/src/crypto.rs créé. Doublons supprimés dans routes.rs et generate.rs.
+         commit: fix(B6-3)
+
+[✅] 5.2  [B6-2] SUPPRIMER OU DOCUMENTER show_completed_task_results()
+         Conservée comme fallback explicite, commentaire documentant l'intention ajouté.
+         commit: fix(B6-2)
+
+[✅] 5.3  [B6-1] CORRIGER HEX_TO_IP POUR IPv6
+         hex_to_ip() branche sur la longueur : 8 = IPv4, 32 = IPv6.
+         Tests unitaires ajoutés.
+         commit: fix(B6-1)
+
+[✅] 5.4  [B6-5] BACKOFF EXPONENTIEL DANS run_c2_loop STAGE 1
+         5s→10s→20s→40s→60s (max). Remplace sleep_with_jitter statique.
+         commit: fix(B6-5)
+
+[✅] 5.5  [B6-6] CONSERVER prev_output SUR ERREUR RÉSEAU STAGE 3
+         Err(_) ne remet plus prev_output/prev_task_id à "".
+         commit: fix(B6-6)
+
+[✅] 5.6  [B6-4] CONFIGURER LE RÉPERTOIRE DOWNLOADS
+         save_download() respecte LINKY_OUTPUT_DIR → $DIR/downloads/<link>.
+         commit: fix(B6-4)
+
+[✅] 5.7  REFACTORISER stage3_handler
+         decode_callback + process_callback + build_task_response extraits.
+         stage3_handler réduit à ~40 lignes d'orchestration.
+         commit: refactor(5.7)
+
+[✅] 5.8  [B6-8] LIMITE JSON PAR HANDLER
+         /static/get → 16 MB via web::resource().app_data(). /static/register → 64 KB.
+         commit: fix(B6-8)
+
+[✅] 5.9  [B6-9] DOCUMENTER inject_shellcode UNSAFE
+         Commentaire SAFETY: ajouté au-dessus du transmute.
+         commit: fix(B6-9)
+
+
+================================================================================
+ SPRINT 3 — CAPACITÉS OPÉRATIONNELLES (P1, toujours en attente)
+================================================================================
+
+[ ] 3.1  PERSISTENCE LINUX
+[ ] 3.2  PERSISTENCE WINDOWS
+[ ] 3.3  SOCKS5 PROXY
+[ ] 3.4  COMMANDE "env"
+[ ] 3.5  LOGGING STRUCTURÉ SUR DISQUE (JSON, rotation)
+[ ] 3.6  MULTI-LISTENER (plusieurs ports/protocoles)
+
+
+================================================================================
+ SPRINT 2 — OPSEC (partiellement complété)
+================================================================================
+
+[🟡] 2.2  TAILLE DES IMPLANTS < 2 MB
+         Profils configurés (release-shellcode), mais taille non mesurée/validée.
+         ACTION : mesurer avec `cargo build --profile release-shellcode -p link-linux`
+         et vérifier la taille réelle. Actuellement estimée ~8 MB non strip.
+         Le flag strip=true dans Cargo.toml devrait réduire significativement.
 
 [ ] 2.1  PROFILS C2 CONFIGURABLES À LA GÉNÉRATION
 [ ] 2.3  INDIRECT SYSCALLS POUR L'INJECTION (Windows)
@@ -80,37 +152,25 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
 
 
 ================================================================================
- SPRINT 3 — CAPACITÉS OPÉRATIONNELLES (P1)
+ SPRINT 6 — GUI (P2, planning — voir PROPOSITIONS GUI ci-dessous)
 ================================================================================
 
-[ ] 3.1  PERSISTENCE LINUX
-[ ] 3.2  PERSISTENCE WINDOWS
-[ ] 3.3  SOCKS5 PROXY
-[ ] 3.4  COMMANDE "env"
-[ ] 3.5  LOGGING STRUCTURÉ
-[ ] 3.6  MULTI-LISTENER
+[ ] 6.0  DÉCISION ARCHITECTURE GUI (voir section dédiée)
 
+[ ] 6.1  [Option A retenue] MIGRATION CLI → ratatui TUI
+         Remplacer rustyline par ratatui avec layout multi-panneaux.
+         Dépendances : ratatui, crossterm.
+         Voir section "PROPOSITIONS GUI" pour le détail des options.
 
-================================================================================
- SPRINT 4 — TESTS & QUALITÉ (P1)
-================================================================================
+[ ] 6.2  [Option B] WEB UI EMBARQUÉE (actix-web + HTMX + SSE)
+         Port dédié (ex: 9443), auth par token, streaming SSE pour les outputs.
+         Voir section "PROPOSITIONS GUI".
 
-[✅] 4.1  TESTS D'INTÉGRATION PROTOCOLE C2
-         server/tests/protocol.rs : 16 tests couvrant les 3 stages (UA, cookie,
-         registration, truncation, AES-256-GCM, dispatch, rotation x_request_id,
-         flux complet stage1→stage2→stage3). Nécessite lib.rs (ajouté).
-[✅] 4.2  TESTS UNITAIRES ROUTES
-         routes.rs : truncate_field (5 cas dont UTF-8), parse_file_response (4 cas).
-         cli.rs    : split_first (4), parse_upload_args (6), parse_generate_args (4).
-[✅] 4.3  CI/CD COMPLET
-         .github/workflows/ci.yml : fmt, clippy -D warnings, cargo test --workspace,
-         check implants (musl + mingw), cargo audit. Swatinem/rust-cache.
-[✅] 4.4  ALIGNER LES FEATURES OSX (reste : info, ps, netstat)
-[✅] 4.5  TESTS UNITAIRES link-common
+(Les sprints 6.x ne seront raffinés qu'après décision sur 6.0)
 
 
 ================================================================================
- BACKLOG POST-MVP (P2/P3) — highlights
+ BACKLOG POST-MVP (P2/P3)
 ================================================================================
 
 [ ] B.9   CONVERSION sRDI INTÉGRÉE (DLL → PIC shellcode Windows)
@@ -119,43 +179,151 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
 
 
 ================================================================================
- BUGS CONNUS (actifs)
+ PROPOSITIONS GUI — ANALYSE COMPARATIVE
 ================================================================================
 
-[✅] File upload : espaces dans le chemin local — guillemets supportés ("path with spaces" /remote).
-[BUG-MINEUR] links counter non persisté entre redémarrages.
-[✅] OSX info/ps/netstat — implémentés (info natif via sysctl, ps/netstat via shell).
-[✅] Link::external_ip — rempli depuis l'adresse TCP du pair au moment du register.
+CONTEXTE
+────────
+Le projet dispose actuellement d'une CLI rustyline synchrone, mono-thread (main).
+L'objectif GUI est d'améliorer l'ergonomie opérateur sans sacrifier le modèle
+de sécurité (pas de browser requis, opérateur seul ou petit groupe).
+
+OPTION A — TUI ratatui (★ RECOMMANDÉE)
+──────────────────────────────────────
+Remplacer rustyline par une interface terminal complète avec layout multi-panneaux.
+
+  Layout proposé :
+  ┌─────────────────────┬────────────────────────────────────────┐
+  │  LINKS (liste)      │  OUTPUT (scrollable, couleurs)         │
+  │  ● link-1|lnx  Actv │  ╔══ link-1 · whoami · 14:38 ═══════╗ │
+  │  ○ link-2|win  Inac │  ║ root@hostname                     ║ │
+  │                     │  ╚══════════════════════════════════╝ │
+  │                     │                                        │
+  ├─────────────────────┴────────────────────────────────────────┤
+  │ link-1|lnx>  _                                               │
+  └──────────────────────────────────────────────────────────────┘
+
+  Avantages :
+  • Pas de browser, pas d'exposition réseau supplémentaire
+  • Pur Rust, dans l'écosystème existant
+  • Idéal pour le modèle opérateur unique
+  • Historique des outputs persistent dans le panneau
+  • Notifications visuelles sur nouveau link/output (titre de panneau clignotant)
+  • Très bon exemple : lazygit, bottom, gitui
+
+  Dépendances à ajouter : ratatui = "0.29", crossterm = "0.28"
+  Complexité : ~2 semaines (refactor complet de cli.rs)
+  Risque : impact fort sur l'architecture du thread CLI principal
+
+OPTION B — WEB UI EMBARQUÉE (actix-web + HTMX + SSE)
+─────────────────────────────────────────────────────
+Ajouter un handler web sur un port dédié (ex: 9443 / séparé du C2 8443).
+Frontend minimaliste en HTMX, sans framework JS.
+
+  Architecture :
+  • Nouveau router actix : GET /ui/* (dashboard), GET /events (SSE stream)
+  • Server-Sent Events pour pusher les outputs en temps réel
+  • Auth : token Bearer (généré au démarrage, affiché en console)
+  • HTTPS self-signed (réutilise rcgen)
+  • HTML/CSS intégré comme include_str! (pas de assets externes)
+
+  Avantages :
+  • Multi-opérateur (plusieurs browsers connectés)
+  • Remote (VPN + browser)
+  • Facile à étendre (React plus tard si besoin)
+  • Logs persistants dans le browser (historique scroll)
+
+  Inconvénients :
+  • Surface d'attaque supplémentaire (second port TLS)
+  • Auth à implémenter sérieusement (tokens, CSRF)
+  • Complexité accrue du binaire serveur
+  • HTMX peut devenir limité pour des interactions riches
+
+  Dépendances : actix-web (déjà présent), tokio::sync::broadcast (déjà présent)
+  Complexité : ~3 semaines
+  Risque : sécurité (second endpoint), cohérence état server/browser
+
+OPTION C — TAURI (desktop natif Rust + webview)
+────────────────────────────────────────────────
+Wrapper Tauri autour du serveur Linky, frontend React/Vue dans webview natif.
+
+  Avantages :
+  • Expérience desktop native (fenêtre, notifications système)
+  • Isolation sécurité Tauri (permissions explicites)
+  • Frontend web standard (React, TypeScript)
+
+  Inconvénients :
+  • Deux langages (Rust + JS/TS), build chain complexe (Node.js requis)
+  • Taille binaire significativement augmentée
+  • Containers/headless server plus difficiles
+  • Casse le modèle Podman actuel
+  • Overkill pour MVP
+
+  Complexité : ~6 semaines
+  Risque : élevé (rupture architecture existante)
+
+OPTION D — API REST + FRONTEND DÉCOUPLÉ
+─────────────────────────────────────────
+Ajouter une API REST complète au serveur, frontend séparé (React, Vue, Svelte).
+
+  Avantages :
+  • Séparation maximale des responsabilités
+  • Frontend entièrement remplaçable
+  • Standard industrie (Swagger/OpenAPI possible)
+
+  Inconvénients :
+  • Deux projets à maintenir (server + frontend)
+  • Auth et CORS à gérer sérieusement
+  • Le plus long à implémenter
+  • Deux repos ou monorepo à organiser
+
+  Complexité : ~8 semaines (+ frontend)
+  Risque : très élevé pour un MVP mono-opérateur
+
+RECOMMANDATION
+──────────────
+  Phase immédiate (MVP) : Option A — ratatui TUI
+    → Améliore drastiquement l'ergonomie sans risque de sécurité supplémentaire.
+    → Reste dans le paradigme "terminal first" cohérent avec le projet.
+    → Servira de base pour une future Option B en parallèle.
+
+  Phase suivante (multi-opérateur) : Option B — Web UI HTMX
+    → Une fois la TUI stable, ajouter le port web comme option --web-ui.
+    → Les deux peuvent coexister (TUI local + Web remote).
+
+  Ne pas implémenter C ou D avant un vrai besoin multi-équipe documenté.
 
 
 ================================================================================
- ORDRE D'EXÉCUTION RECOMMANDÉ
+ ORDRE D'EXÉCUTION RECOMMANDÉ (post-audit #6)
 ================================================================================
 
-  Phase 1 — Nettoyage + UX (Sprint 1.6, ~45 min)
-  ────────────────────────────────────────────────
-  1. 1.6.1 : Cargo.toml linux/osx/windows
-  2. 1.6.4 : ua_ok() allocation
-  3. 1.6.3 : derive_key_sha256 signature
-  4. 1.6.5 : supprimer encrypt_payload/decrypt_payload
-  5. 1.6.6 : réorganiser help link + prompt plateforme
-  6. 1.6.2 : CLAUDE.md
+  Phase 1 — Correctifs robustesse (~3h, Sprint 5)
+  ─────────────────────────────────────────────────
+  1. 5.1 : Centraliser crypto serveur (server/src/crypto.rs)
+  2. 5.4 : Backoff exponentiel stage 1
+  3. 5.5 : Conserver prev_output sur erreur réseau
+  4. 5.3 : Corriger hex_to_ip IPv6
+  5. 5.7 : Refactoriser stage3_handler
+  6. 5.2 : Nettoyer show_completed_task_results()
+  7. 5.6 : Configurer répertoire downloads
+  8. 5.8 : Limite JSON par handler
+  9. 5.9 : Documenter unsafe inject_shellcode
 
-  Phase 2 — Taille + Shellcode (~2h)
-  ───────────────────────────────────
-  7. 2.2 : profils release + release-shellcode
-  8. 2.6 : --shellcode flag
+  Phase 2 — Mesure taille implants (~30 min)
+  ────────────────────────────────────────────
+  10. 2.2 : Mesurer tailles réelles et documenter
 
-  Phase 3 — Quick wins (~1h)
-  ──────────────────────────
-  9.  3.4 : commande "env"
-  10. 4.4 : osx info/ps/netstat
+  Phase 3 — Capacités opérationnelles (~2 semaines, Sprint 3)
+  ─────────────────────────────────────────────────────────────
+  11. 3.4 : commande "env" (quick win)
+  12. 3.5 : logging structuré disque
+  13. 3.1 + 3.2 : persistence Linux + Windows
 
-  Phase 4 — Tests + capacités
-  ────────────────────────────
-  11. 4.1 + 4.2 : tests
-  12. 3.1 + 3.2 : persistence
-  13. 3.5 : logging
+  Phase 4 — GUI (~2-3 semaines, Sprint 6)
+  ─────────────────────────────────────────
+  14. 6.0 : Décision architecture
+  15. 6.1 : Implémentation TUI ratatui (si Option A retenue)
 
 
 ================================================================================

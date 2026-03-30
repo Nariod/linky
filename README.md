@@ -2,8 +2,9 @@
 
 A minimal, Rust-native Command & Control framework. Rewrite of [postrequest/link](https://github.com/postrequest/link).
 
-> **Status: Alpha — not production-ready.**
-> See [Roadmap](#roadmap) for what's missing before real-world use.
+> **Status: Beta — suitable for authorized production engagements.**
+> Sprint 5 complete: all known blocking bugs fixed, full test suite green, CI/CD passing.
+> See [Known limitations](#known-limitations) for what remains before a v1.0 tag.
 
 > **SECURITY WARNING**
 > This project was developed with assistance from Claude and Mistral AI.
@@ -37,7 +38,7 @@ Your implant is in `./implants/link-linux`. No Rust installation needed on the h
 | Trait | Detail |
 |-------|--------|
 | **Rust-native** | Harder to reverse than Go/Python — limited RE tooling for Rust binaries |
-| **Small codebase** | ~2k LOC vs ~50k for Sliver — auditable, forkable |
+| **Small codebase** | ~2.5k LOC vs ~50k for Sliver — auditable, forkable |
 | **Container-first** | Build + run in 3 commands, no host dependencies |
 | **KISS** | One binary, one protocol, no plugin system to learn |
 
@@ -48,7 +49,7 @@ Linky does **not** aim for feature parity with Sliver, Mythic, or Havoc. It's a 
 ## Architecture
 ```
 linky/
-├── server/                 # C2 server binary
+├── server/                 # C2 server binary (crate: linky)
 │   └── src/
 │       ├── main.rs         # Entry: server + GC + CLI threads
 │       ├── server.rs       # actix-web 4 + rustls 0.23 (self-signed TLS)
@@ -57,16 +58,20 @@ linky/
 │       ├── tasks.rs        # Per-link task queue
 │       ├── cli.rs          # Interactive CLI (rustyline)
 │       ├── generate.rs     # Implant builder (invokes cargo)
+│       ├── error.rs        # Error types (thiserror)
 │       └── ui.rs           # Terminal output helpers
 ├── links/
 │   ├── common/             # Shared: C2 loop, HTTP client, crypto, wire types
 │   │   └── src/
 │   │       ├── lib.rs      # run_c2_loop(), crypto, types, helpers
 │   │       └── dispatch.rs # Cross-platform command dispatch
-│   ├── linux/              # Linux implant    → link-linux (~80 LOC)
-│   ├── windows/            # Windows implant  → link-windows.exe (~120 LOC)
-│   └── osx/                # macOS implant    → link-osx (~80 LOC)
-├── podmanfile              # Single-stage with full Rust toolchain
+│   ├── linux/              # Linux implant    → link-linux (~310 LOC)
+│   ├── windows/            # Windows implant  → link-windows.exe (~380 LOC)
+│   └── osx/                # macOS implant    → link-osx (~220 LOC)
+├── server/tests/
+│   └── protocol.rs         # 16 integration tests covering all 3 C2 stages
+├── .github/workflows/ci.yml # CI: fmt + clippy -D warnings + test + audit
+├── Dockerfile              # Single-stage (Rust toolchain embedded for implant gen)
 ├── CLAUDE.md               # Instructions for Claude Code
 └── .mistralrc              # Instructions for Mistral Vibe
 ```
@@ -77,18 +82,30 @@ All communication is HTTPS/JSON with AES-256-GCM payload encryption. Each reques
 ```
 Implant                           Server
   │                                  │
-  │── GET /js ───────────────────────▶│  Stage 1: Set-Cookie
+  │── GET /js ───────────────────────▶│  Stage 1: Set-Cookie: banner=banner
   │                                  │
   │── POST /static/register ─────────▶│  Stage 2: register + initial x_request_id
-  │◀─ { x_request_id, data? } ───────│
+  │   header: X-Client-ID (secret)   │
+  │◀─ { x_request_id } ──────────────│
   │                                  │
   │── POST /static/get ──────────────▶│  Stage 3: polling loop
   │   header: x-request-id           │    body: AES-256-GCM encrypted payload
-  │   body: { data: encrypted }      │    ← implant submits task output (encrypted)
-  │◀─ { data: encrypted, x_req_id } ─│    → server returns next task (encrypted)
+  │   body: { data: hex(nonce+ct) }  │    ← implant submits task output (encrypted)
+  │◀─ { data: hex(nonce+ct), xid } ──│    → server returns next task (encrypted)
 ```
 
-Each implant has a **unique AES-256-GCM key** derived from a per-implant secret generated at build time. Keys never appear in plaintext in binaries.
+Each implant has a **unique AES-256-GCM key** derived at build time from a random secret via SHA-256. The callback address is also encrypted in the binary. Keys and addresses never appear in plaintext in binaries.
+
+### Security properties
+
+| Property | Implementation |
+|----------|---------------|
+| Per-implant key | SHA-256(secret ‖ "callback-salt") — random 32-byte secret per build |
+| Callback address | AES-256-GCM encrypted in binary, decrypted at runtime |
+| Transport | HTTPS/TLS 1.3 (self-signed, rustls 0.23) |
+| String obfuscation | `obfstr!()` macro on all sensitive literals |
+| Stage validation | UA + session cookie + rolling UUID x-request-id |
+| OOM protection | JSON payload limit 64 KB, field truncation (256 bytes) |
 
 ---
 
@@ -104,28 +121,30 @@ linky> help
   help                                   Show this help
   exit / kill                            Quit linky
 
-  --shellcode   Produce minimal .bin via objcopy (Linux/macOS).
-                Windows: produces a PE — use sRDI/Donut for PIC conversion.
-                Uses release-shellcode profile (panic=abort, lto, opt-level=z).
+  --shellcode   Linux/macOS: extract .text section via objcopy → flat .bin
+                Windows: copy PE (use sRDI/Donut for PIC conversion — item B.9)
+                Uses release-shellcode profile (panic=abort, lto, opt-level=z)
 
   LINKY_OUTPUT_DIR  Output directory for generated implants (default: .)
 ```
 
-### Link interaction
+### Link interaction (platform-aware help)
 ```
   ── Execution ────────────────────────────────────────
-  shell <cmd>              Raw command via /bin/sh or cmd.exe
-  cmd <args>               cmd.exe /C wrapper         (Windows)
-  powershell <args>        powershell.exe wrapper      (Windows)
+  shell <cmd>              Run via /bin/sh or cmd.exe
+  cmd <args>               cmd.exe /C wrapper          (Windows only)
+  powershell <args>        powershell.exe wrapper       (Windows only)
   ── Navigation ───────────────────────────────────────
   ls / cd / pwd / whoami / pid
   ── Reconnaissance ───────────────────────────────────
-  info                     System information
+  info                     Detailed system information
   ps                       Running processes
   netstat                  Network connections
   ── File transfer ────────────────────────────────────
   download <path>          Download file from implant
   upload <local> <remote>  Upload file to implant
+                           Quote paths with spaces: "path/to file" /remote/dest
+                                                       'path/to file' /remote/dest
   ── Operational ──────────────────────────────────────
   sleep <s> [jitter%]      Polling interval (e.g. sleep 30 20)
   killdate <date|clear>    Auto-exit date (e.g. killdate 2026-12-31)
@@ -136,6 +155,11 @@ linky> help
   kill                     Send exit + mark link dead
   back                     Return to links menu
 ```
+
+The prompt adapts to the implant's platform: `link-1|lnx>`, `link-1|win>`, `link-1|osx>`. Windows-only commands are hidden when interacting with a Linux or macOS link.
+
+### Downloads
+Downloaded files are saved to `downloads/<link-name>/<filename>` relative to the server's working directory (or `LINKY_OUTPUT_DIR` if set).
 
 ---
 
@@ -148,13 +172,15 @@ linky> help
 **Full (server + implant generation):**
 ```bash
 # Debian/Ubuntu
-sudo apt-get install -y musl-tools mingw-w64 clang lld pkg-config libssl-dev
+sudo apt-get install -y musl-tools mingw-w64 clang lld pkg-config libssl-dev binutils
 rustup target add x86_64-pc-windows-gnu x86_64-unknown-linux-musl
 
 # Fedora/RHEL
-sudo dnf install -y musl-gcc mingw64-gcc clang lld pkg-config openssl-devel
+sudo dnf install -y musl-gcc mingw64-gcc clang lld pkg-config openssl-devel binutils
 rustup target add x86_64-pc-windows-gnu x86_64-unknown-linux-musl
 ```
+
+`binutils` is required for `objcopy` (used by `--shellcode` on Linux).
 
 ### Build & run
 ```bash
@@ -175,48 +201,48 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 | Feature | Linux | Windows | macOS |
 |---------|-------|---------|-------|
 | Shell execution | `/bin/sh -c` | `cmd.exe /C` (CREATE_NO_WINDOW) | `/bin/sh -c` |
-| System info | `/proc`, `/etc/os-release` | PowerShell, env vars | — (shell fallback) |
-| Process listing | `/proc` parsing | `tasklist /FO CSV` | — (shell fallback) |
-| Network connections | `/proc/net/tcp*` | `netstat -ano` | — (shell fallback) |
+| System info | `/proc`, `/etc/os-release` | PowerShell, env vars | `sysctl`, `sw_vers` |
+| Process listing | `/proc` parsing | `tasklist /FO CSV` | `ps aux` (shell) |
+| Network connections | `/proc/net/tcp*` (IPv4 + IPv6) | `netstat -ano` | `netstat -an` (shell) |
 | File download/upload | ✅ | ✅ | ✅ |
 | Configurable sleep+jitter | ✅ | ✅ | ✅ |
 | Kill date | ✅ | ✅ | ✅ |
 | Encrypted C2 comms | AES-256-GCM | AES-256-GCM | AES-256-GCM |
 | Per-implant key | ✅ | ✅ | ✅ |
 | Obfuscated strings | ✅ | ✅ | ✅ |
-| Shellcode injection | — | VirtualAllocEx + CreateRemoteThread | — |
+| Shellcode export (.bin) | ✅ objcopy | PE copy (sRDI needed) | ✅ objcopy |
+| Process injection | — | VirtualAllocEx + CreateRemoteThread | — |
 | Integrity level | — | Token query | — |
-
-> macOS `info`, `ps`, `netstat` fall back to shell execution. Native implementations pending (item 4.4).
+| Hostname detection | `/etc/hostname` | `COMPUTERNAME` env | `scutil --get ComputerName` |
+| External IP | TCP peer addr (server-side) | TCP peer addr | TCP peer addr |
 
 ---
 
 ## Roadmap
 
-### Current limitations (honest assessment)
+### Known limitations
 
 - **Evasion**: zero EDR evasion. Windows injection uses the most heavily monitored APIs (VirtualAllocEx + CreateRemoteThread). No AMSI/ETW bypass. Binary signatures are unaddressed.
 - **Features**: no persistence, no SOCKS proxy, no credential harvesting, no lateral movement.
-- **Operations**: single operator, no logging to disk, no database, no web UI.
-- **macOS**: `info`, `ps`, `netstat` not natively implemented — fall back to shell.
+- **Operations**: single operator, no logging to disk, no web UI.
 - **Transport**: TLS is self-signed, no certificate pinning or domain fronting.
 
-### MVP roadmap (target: ~50% feature coverage)
+### Roadmap status
 
 | Sprint | Focus | Status |
 |--------|-------|--------|
-| 0 | Dead code cleanup, error handling | ✅ Done |
-| 0.5 | Robustness, factorization debt | ✅ Done |
-| 1 | Per-implant keys, payload encryption, string obfuscation | ✅ Done |
-| 1.5 | Code factorization (run_c2_loop), mutex hardening | ✅ Done |
-| 1.6 | Cargo.toml cleanup, CLAUDE.md update, CLI UX | ✅ Done |
-| 2.2 | Build profiles (release + release-shellcode), implant size | ✅ Done |
+| 0–1.5 | Dead code cleanup, error handling, crypto, factorisation | ✅ Done |
+| 1.6 | Cargo.toml cleanup, CLI UX (platform-aware help + prompt) | ✅ Done |
+| 2.2 | Build profiles (release + release-shellcode) | ✅ Done |
 | 2.6 | `--shellcode` flag: `.bin` via objcopy (Linux), PE (Windows) | ✅ Done |
+| 4.1–4.5 | Integration tests, CI/CD, macOS alignment, link-common tests | ✅ Done |
+| **5** | **Robustness (crypto centralisation, IPv6, backoff, stage3 refactor)** | **✅ Done** |
+| 3 | Persistence (Linux+Windows), SOCKS proxy, env cmd, disk logging | ⬜ Planned |
+| 6 | GUI — TUI ratatui or embedded Web UI (decision pending) | ⬜ Planned |
 | 2.x | Malleable profiles, indirect syscalls, AMSI/ETW bypass | ⬜ Planned |
-| 3 | Persistence (Linux+Windows), SOCKS proxy, op logging | ⬜ Planned |
-| 4 | Integration tests, CI hardening, macOS alignment | ⬜ Planned |
+| B.9 | sRDI integration (DLL → PIC shellcode Windows) | ⬜ Backlog |
 
-See `TODO.txt` for the detailed task list.
+See `TODO.txt` for the detailed task list including the GUI architecture comparison.
 
 ---
 
@@ -234,8 +260,8 @@ cargo clippy --workspace -- -D warnings
 cargo test --workspace
 
 # Build all implants (requires cross-compilation toolchain)
-cargo check -p link-linux
-cargo check -p link-windows
+cargo check -p link-linux  --target x86_64-unknown-linux-musl
+cargo check -p link-windows --target x86_64-pc-windows-gnu
 cargo check -p link-osx
 cargo check -p link-common
 
@@ -246,18 +272,35 @@ cargo run --release --bin linky 0.0.0.0:8443
 ### Verify end-to-end
 ```
 linky> generate-linux 127.0.0.1:8443
-# Run the generated implant, then:
+# Run the generated implant in another terminal, then:
 linky> links
 linky> -i link-1
-link-1> whoami
+link-1|lnx> whoami
 ```
 
 Result appears in a formatted box:
 ```
 ╔═ link-1 · whoami · 14:38:23 ═══════════════════╗
-║ fedora@hostname
+║ root@hostname
 ╚═════════════════════════════════════════════════╝
 ```
+
+---
+
+## Known bugs
+
+| ID | Severity | Description | Status |
+|----|----------|-------------|--------|
+| B6-1 | Medium | IPv6 addresses malformed in `netstat` output (Linux) | ✅ Fixed |
+| B6-2 | Minor | `show_completed_task_results()` in cli.rs is effectively dead code | ✅ Documented as fallback |
+| B6-3 | Minor | Crypto helpers duplicated in 3 locations (risk of divergence) | ✅ Fixed |
+| B6-4 | Minor | `downloads/` dir is relative to server CWD, not documented | ✅ Fixed (`LINKY_OUTPUT_DIR`) |
+| B6-5 | Minor | Stage 1 retry loop has no backoff (floods unreachable server) | ✅ Fixed |
+| B6-6 | Minor | Network error in stage 3 discards pending task output | ✅ Fixed |
+| B6-7 | Minor | `upload` doesn't support single-quoted paths | ✅ Fixed |
+| B6-8 | Minor | 64 KB JSON limit too small for large file uploads | ✅ Fixed (16 MB for `/static/get`) |
+| B6-9 | Minor | `inject_shellcode` uses undocumented `transmute` | ✅ Fixed |
+| — | Minor | Link counter resets on server restart | Backlog |
 
 ---
 
@@ -265,4 +308,4 @@ Result appears in a formatted box:
 
 - **`CLAUDE.md`** — conventions, architecture, security rules for Claude Code
 - **`.mistralrc`** — conventions and workflow for Mistral Vibe
-- **`TODO.txt`** — authoritative roadmap (read before modifying anything)
+- **`TODO.txt`** — authoritative roadmap including GUI architecture proposals

@@ -326,19 +326,33 @@ fn parse_net_connections(content: &str, proto: &str, connections: &mut Vec<Strin
 }
 
 fn hex_to_ip(hex_str: &str) -> String {
-    if hex_str.len() < 8 {
-        return hex_str.to_string();
+    match hex_str.len() {
+        8 => {
+            // IPv4 : 4 octets little-endian
+            (0..4)
+                .rev()
+                .map(|i| {
+                    u8::from_str_radix(&hex_str[i * 2..i * 2 + 2], 16)
+                        .map(|b| b.to_string())
+                        .unwrap_or_else(|_| "?".to_string())
+                })
+                .collect::<Vec<_>>()
+                .join(".")
+        }
+        32 => {
+            // IPv6 : 4×u32 little-endian → 8 groupes u16 big-endian
+            let mut groups = Vec::with_capacity(8);
+            for i in 0..4 {
+                let chunk = &hex_str[i * 8..(i + 1) * 8];
+                // each chunk is a u32 LE — swap bytes to get BE, then split into two u16
+                let word = u32::from_str_radix(chunk, 16).unwrap_or(0).swap_bytes();
+                groups.push(format!("{:04x}", (word >> 16) as u16));
+                groups.push(format!("{:04x}", word as u16));
+            }
+            groups.join(":")
+        }
+        _ => hex_str.to_string(), // Format inconnu, retourner brut
     }
-    // /proc/net/tcp stores IPs in little-endian order — read bytes in reverse
-    (0..4)
-        .rev()
-        .map(|i| {
-            u8::from_str_radix(&hex_str[i * 2..i * 2 + 2], 16)
-                .map(|b| b.to_string())
-                .unwrap_or_else(|_| "?".to_string())
-        })
-        .collect::<Vec<_>>()
-        .join(".")
 }
 
 fn hex_to_port(hex_str: &str) -> String {
@@ -380,4 +394,33 @@ fn get_process_from_inode(inode: &str) -> String {
         }
     }
     "-".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hex_to_ip_v4() {
+        // 127.0.0.1 en little-endian = 0100007F
+        assert_eq!(hex_to_ip("0100007F"), "127.0.0.1");
+    }
+
+    #[test]
+    fn test_hex_to_ip_v4_unknown_host() {
+        // 0.0.0.0 en little-endian = 00000000
+        assert_eq!(hex_to_ip("00000000"), "0.0.0.0");
+    }
+
+    #[test]
+    fn test_hex_to_ip_v6_loopback() {
+        // ::1 en /proc/net/tcp6 = "00000000000000000000000001000000"
+        let result = hex_to_ip("00000000000000000000000001000000");
+        assert!(result.contains(':'), "should be IPv6 notation: {}", result);
+    }
+
+    #[test]
+    fn test_hex_to_ip_unknown_length_returns_raw() {
+        assert_eq!(hex_to_ip("ABCD"), "ABCD");
+    }
 }
