@@ -109,12 +109,10 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
          save_download() respecte LINKY_OUTPUT_DIR → $DIR/downloads/<link>.
          commit: fix(B6-4)
 
-[ ] 5.7  REFACTORISER stage3_handler
-         La fonction fait ~220 lignes avec 3 sections distinctes.
-         Extraire en sous-fonctions privées :
-           fn process_callback(links, link_id, key, q, tasking) -> Option<UiMsg>
-           fn build_task_response(links, link_id, key, new_xid) -> TaskResponse
-         Difficulté : moyenne (~45 min)
+[✅] 5.7  REFACTORISER stage3_handler
+         decode_callback + process_callback + build_task_response extraits.
+         stage3_handler réduit à ~40 lignes d'orchestration.
+         commit: refactor(5.7)
 
 [✅] 5.8  [B6-8] LIMITE JSON PAR HANDLER
          /static/get → 16 MB via web::resource().app_data(). /static/register → 64 KB.
