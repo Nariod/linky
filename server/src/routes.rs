@@ -114,9 +114,16 @@ fn save_download(link_name: &str, remote_path: &str, b64_content: &str) -> Resul
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "file".to_string());
 
-    let dest_dir = PathBuf::from("downloads").join(link_name);
-    std::fs::create_dir_all(&dest_dir)
-        .map_err(|e| format!("[-] Failed to create downloads dir: {}", e))?;
+    let base_dir = std::env::var("LINKY_OUTPUT_DIR")
+        .map(|d| PathBuf::from(d).join("downloads"))
+        .unwrap_or_else(|_| PathBuf::from("downloads"));
+    let dest_dir = base_dir.join(link_name);
+    std::fs::create_dir_all(&dest_dir).map_err(|e| {
+        format!(
+            "[-] Failed to create downloads dir: {} (set LINKY_OUTPUT_DIR to override base path)",
+            e
+        )
+    })?;
 
     let data = STANDARD
         .decode(b64_content)
