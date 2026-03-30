@@ -2,8 +2,9 @@
 
 A minimal, Rust-native Command & Control framework. Rewrite of [postrequest/link](https://github.com/postrequest/link).
 
-> **Status: Alpha — not production-ready.**
-> See [Roadmap](#roadmap) for what's missing before real-world use.
+> **Status: Beta — suitable for authorized production engagements.**
+> Sprint 5 complete: all known blocking bugs fixed, full test suite green, CI/CD passing.
+> See [Known limitations](#known-limitations) for what remains before a v1.0 tag.
 
 > **SECURITY WARNING**
 > This project was developed with assistance from Claude and Mistral AI.
@@ -143,6 +144,7 @@ linky> help
   download <path>          Download file from implant
   upload <local> <remote>  Upload file to implant
                            Quote paths with spaces: "path/to file" /remote/dest
+                                                       'path/to file' /remote/dest
   ── Operational ──────────────────────────────────────
   sleep <s> [jitter%]      Polling interval (e.g. sleep 30 20)
   killdate <date|clear>    Auto-exit date (e.g. killdate 2026-12-31)
@@ -201,7 +203,7 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 | Shell execution | `/bin/sh -c` | `cmd.exe /C` (CREATE_NO_WINDOW) | `/bin/sh -c` |
 | System info | `/proc`, `/etc/os-release` | PowerShell, env vars | `sysctl`, `sw_vers` |
 | Process listing | `/proc` parsing | `tasklist /FO CSV` | `ps aux` (shell) |
-| Network connections | `/proc/net/tcp*` (IPv4 correct, IPv6 WIP) | `netstat -ano` | `netstat -an` (shell) |
+| Network connections | `/proc/net/tcp*` (IPv4 + IPv6) | `netstat -ano` | `netstat -an` (shell) |
 | File download/upload | ✅ | ✅ | ✅ |
 | Configurable sleep+jitter | ✅ | ✅ | ✅ |
 | Kill date | ✅ | ✅ | ✅ |
@@ -218,12 +220,11 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 
 ## Roadmap
 
-### Current limitations (honest assessment)
+### Known limitations
 
 - **Evasion**: zero EDR evasion. Windows injection uses the most heavily monitored APIs (VirtualAllocEx + CreateRemoteThread). No AMSI/ETW bypass. Binary signatures are unaddressed.
 - **Features**: no persistence, no SOCKS proxy, no credential harvesting, no lateral movement.
 - **Operations**: single operator, no logging to disk, no web UI.
-- **Network**: TCP6/UDP6 netstat output is currently malformed on Linux (IPv6 hex decoding bug — fix planned in Sprint 5).
 - **Transport**: TLS is self-signed, no certificate pinning or domain fronting.
 
 ### Roadmap status
@@ -235,7 +236,7 @@ podman run -it --rm -p 8443:8443 -v ./implants:/implants:Z linky-c2
 | 2.2 | Build profiles (release + release-shellcode) | ✅ Done |
 | 2.6 | `--shellcode` flag: `.bin` via objcopy (Linux), PE (Windows) | ✅ Done |
 | 4.1–4.5 | Integration tests, CI/CD, macOS alignment, link-common tests | ✅ Done |
-| **5** | **Robustness fixes (crypto dedup, IPv6, backoff, stage3 refactor)** | **🔜 Next** |
+| **5** | **Robustness (crypto centralisation, IPv6, backoff, stage3 refactor)** | **✅ Done** |
 | 3 | Persistence (Linux+Windows), SOCKS proxy, env cmd, disk logging | ⬜ Planned |
 | 6 | GUI — TUI ratatui or embedded Web UI (decision pending) | ⬜ Planned |
 | 2.x | Malleable profiles, indirect syscalls, AMSI/ETW bypass | ⬜ Planned |
@@ -288,17 +289,17 @@ Result appears in a formatted box:
 
 ## Known bugs
 
-| ID | Severity | Description | Fix target |
-|----|----------|-------------|------------|
-| B6-1 | Medium | IPv6 addresses malformed in `netstat` output (Linux) | Sprint 5.3 |
-| B6-2 | Minor | `show_completed_task_results()` in cli.rs is effectively dead code | Sprint 5.2 |
-| B6-3 | Minor | Crypto helpers duplicated in 3 locations (risk of divergence) | Sprint 5.1 |
-| B6-4 | Minor | `downloads/` dir is relative to server CWD, not documented | Sprint 5.6 |
-| B6-5 | Minor | Stage 1 retry loop has no backoff (floods unreachable server) | Sprint 5.4 |
-| B6-6 | Minor | Network error in stage 3 discards pending task output | Sprint 5.5 |
-| B6-7 | Minor | `upload` doesn't support single-quoted paths | Sprint 5.x |
-| B6-8 | Minor | 64 KB JSON limit too small for large file uploads | Sprint 5.8 |
-| B6-9 | Minor | `inject_shellcode` uses undocumented `transmute` | Sprint 5.9 |
+| ID | Severity | Description | Status |
+|----|----------|-------------|--------|
+| B6-1 | Medium | IPv6 addresses malformed in `netstat` output (Linux) | ✅ Fixed |
+| B6-2 | Minor | `show_completed_task_results()` in cli.rs is effectively dead code | ✅ Documented as fallback |
+| B6-3 | Minor | Crypto helpers duplicated in 3 locations (risk of divergence) | ✅ Fixed |
+| B6-4 | Minor | `downloads/` dir is relative to server CWD, not documented | ✅ Fixed (`LINKY_OUTPUT_DIR`) |
+| B6-5 | Minor | Stage 1 retry loop has no backoff (floods unreachable server) | ✅ Fixed |
+| B6-6 | Minor | Network error in stage 3 discards pending task output | ✅ Fixed |
+| B6-7 | Minor | `upload` doesn't support single-quoted paths | ✅ Fixed |
+| B6-8 | Minor | 64 KB JSON limit too small for large file uploads | ✅ Fixed (16 MB for `/static/get`) |
+| B6-9 | Minor | `inject_shellcode` uses undocumented `transmute` | ✅ Fixed |
 | — | Minor | Link counter resets on server restart | Backlog |
 
 ---
