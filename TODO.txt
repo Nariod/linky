@@ -1,6 +1,6 @@
 ================================================================================
  LINKY C2 FRAMEWORK — TODO / ROADMAP
- Mis à jour le 2026-03-30 (audit #6 — deep code review + GUI planning)
+ Mis à jour le 2026-03-30 (sprint 5 — corrections bugs B6-1 à B6-9)
 ================================================================================
 
 PHILOSOPHIE
@@ -84,39 +84,30 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
  SPRINT 5 — ROBUSTESSE MAINTENABILITÉ (P1, ~3h, issu audit #6)
 ================================================================================
 
-[ ] 5.1  [B6-3] CENTRALISER LA CRYPTO SERVEUR
-         Créer server/src/crypto.rs exposant :
-           pub fn derive_key(secret: &[u8], salt: &str) -> [u8; 32]
-           pub fn encrypt(data: &str, key: &[u8; 32]) -> String
-           pub fn decrypt(enc_hex: &str, key: &[u8; 32]) -> Option<String>
-         Supprimer les doublons dans routes.rs et generate.rs.
-         Difficulté : faible (~20 min)
+[✅] 5.1  [B6-3] CENTRALISER LA CRYPTO SERVEUR
+         server/src/crypto.rs créé. Doublons supprimés dans routes.rs et generate.rs.
+         commit: fix(B6-3)
 
-[ ] 5.2  [B6-2] SUPPRIMER OU DOCUMENTER show_completed_task_results()
-         Soit supprimer la fonction (dead code confirmé en prod),
-         soit la garder en fallback explicite pour le mode headless
-         (détacher du flow normal, appeler uniquement si !TTY).
-         Difficulté : faible (~15 min)
+[✅] 5.2  [B6-2] SUPPRIMER OU DOCUMENTER show_completed_task_results()
+         Conservée comme fallback explicite, commentaire documentant l'intention ajouté.
+         commit: fix(B6-2)
 
-[ ] 5.3  [B6-1] CORRIGER HEX_TO_IP POUR IPv6
-         links/linux/src/stdlib.rs → parse_net_connections() :
-         Détecter 32 chars hex = IPv6, décoder 4×u32 LE, formatter en ::notation.
-         Difficulté : moyenne (~30 min)
+[✅] 5.3  [B6-1] CORRIGER HEX_TO_IP POUR IPv6
+         hex_to_ip() branche sur la longueur : 8 = IPv4, 32 = IPv6.
+         Tests unitaires ajoutés.
+         commit: fix(B6-1)
 
-[ ] 5.4  [B6-5] BACKOFF EXPONENTIEL DANS run_c2_loop STAGE 1
-         Remplacer le sleep statique par un backoff :
-           let mut delay = 5u64;
-           loop { sleep(delay); delay = (delay * 2).min(60); }
-         Difficulté : faible (~10 min)
+[✅] 5.4  [B6-5] BACKOFF EXPONENTIEL DANS run_c2_loop STAGE 1
+         5s→10s→20s→40s→60s (max). Remplace sleep_with_jitter statique.
+         commit: fix(B6-5)
 
-[ ] 5.5  [B6-6] CONSERVER prev_output SUR ERREUR RÉSEAU STAGE 3
-         Ne reset prev_output/prev_task_id que si task.q.is_empty() après succès.
-         Difficulté : faible (~10 min)
+[✅] 5.5  [B6-6] CONSERVER prev_output SUR ERREUR RÉSEAU STAGE 3
+         Err(_) ne remet plus prev_output/prev_task_id à "".
+         commit: fix(B6-6)
 
-[ ] 5.6  [B6-4] CONFIGURER LE RÉPERTOIRE DOWNLOADS
-         save_download() : respecter LINKY_OUTPUT_DIR ou ajouter LINKY_DL_DIR.
-         Documenter dans README et --help.
-         Difficulté : faible (~15 min)
+[✅] 5.6  [B6-4] CONFIGURER LE RÉPERTOIRE DOWNLOADS
+         save_download() respecte LINKY_OUTPUT_DIR → $DIR/downloads/<link>.
+         commit: fix(B6-4)
 
 [ ] 5.7  REFACTORISER stage3_handler
          La fonction fait ~220 lignes avec 3 sections distinctes.
@@ -125,15 +116,13 @@ Priorités : P0 = bloquant sécurité, P1 = MVP, P2 = nice-to-have, P3 = futur.
            fn build_task_response(links, link_id, key, new_xid) -> TaskResponse
          Difficulté : moyenne (~45 min)
 
-[ ] 5.8  [B6-8] LIMITE JSON PAR HANDLER
-         Augmenter la limite pour /static/get à 16 MB (transferts fichiers).
-         Garder 64 KB pour /static/register.
-         Difficulté : faible (~10 min)
+[✅] 5.8  [B6-8] LIMITE JSON PAR HANDLER
+         /static/get → 16 MB via web::resource().app_data(). /static/register → 64 KB.
+         commit: fix(B6-8)
 
-[ ] 5.9  [B6-9] DOCUMENTER inject_shellcode UNSAFE
-         Ajouter commentaire SAFETY: explicite autour du transmute.
-         Ou refactoriser avec std::mem::transmute_copy sur type fn explicite.
-         Difficulté : faible (~10 min)
+[✅] 5.9  [B6-9] DOCUMENTER inject_shellcode UNSAFE
+         Commentaire SAFETY: ajouté au-dessus du transmute.
+         commit: fix(B6-9)
 
 
 ================================================================================
