@@ -12,59 +12,7 @@ pub struct AppState {
     pub links: Arc<Mutex<Links>>,
 }
 
-/// Derive a 32-byte key from secret and salt using SHA-256.
-/// Must stay aligned with link-common::derive_key (same algorithm).
-fn derive_key(secret: &[u8], salt: &str) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-
-    let mut hasher = Sha256::new();
-    hasher.update(secret);
-    hasher.update(salt.as_bytes());
-    let result = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&result[..32]);
-    key
-}
-
-/// Encrypt payload data using AES-256-GCM
-fn encrypt_payload(data: &str, key: &[u8; 32]) -> String {
-    use aes_gcm::{
-        aead::{Aead, KeyInit},
-        Aes256Gcm, Nonce,
-    };
-
-    let nonce_bytes = rand::random::<[u8; 12]>();
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    let cipher = Aes256Gcm::new_from_slice(key).expect("Failed to create cipher");
-    let ciphertext = cipher
-        .encrypt(nonce, data.as_bytes())
-        .expect("Encryption failure");
-
-    let mut result = Vec::with_capacity(nonce.len() + ciphertext.len());
-    result.extend_from_slice(nonce);
-    result.extend_from_slice(&ciphertext);
-    hex::encode(result)
-}
-
-/// Decrypt payload data using AES-256-GCM
-fn decrypt_payload(encrypted_hex: &str, key: &[u8; 32]) -> Option<String> {
-    use aes_gcm::{
-        aead::{Aead, KeyInit},
-        Aes256Gcm, Nonce,
-    };
-
-    let encrypted_data = hex::decode(encrypted_hex).ok()?;
-    if encrypted_data.len() < 12 {
-        return None;
-    }
-    let nonce = Nonce::from_slice(&encrypted_data[..12]);
-    let ciphertext = &encrypted_data[12..];
-    let cipher = Aes256Gcm::new_from_slice(key).ok()?;
-    match cipher.decrypt(nonce, ciphertext) {
-        Ok(decrypted) => String::from_utf8(decrypted).ok(),
-        Err(_) => None,
-    }
-}
+use crate::crypto::{decrypt, derive_key, encrypt};
 
 // ── Request/Response types ──────────────────────────────────────────────────
 
@@ -382,7 +330,7 @@ pub async fn stage3_handler(
 
     if let Some(encrypted_data) = &body.data {
         // New encrypted format
-        if let Some(decrypted) = decrypt_payload(encrypted_data, &key) {
+        if let Some(decrypted) = decrypt(encrypted_data, &key) {
             // Parse the decrypted JSON payload
             #[derive(Deserialize)]
             struct PayloadData {
@@ -541,7 +489,7 @@ pub async fn stage3_handler(
     };
 
     let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
-    let encrypted_data = encrypt_payload(&payload_json, &key);
+    let encrypted_data = encrypt(&payload_json, &key);
 
     let resp = TaskResponse {
         data: Some(encrypted_data),

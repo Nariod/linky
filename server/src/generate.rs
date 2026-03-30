@@ -123,36 +123,7 @@ fn check_prerequisites(target: &str) -> bool {
     true
 }
 
-/// Derive a 32-byte key using SHA-256 — must stay aligned with link-common::derive_key.
-fn derive_key_sha256(secret: &[u8], salt: &str) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(secret);
-    hasher.update(salt.as_bytes());
-    let result = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&result[..32]);
-    key
-}
-
-/// Encrypt `data` with AES-256-GCM and return hex(nonce || ciphertext).
-/// Must stay aligned with link-common::encrypt_config.
-fn encrypt_aes_gcm(data: &str, key: &[u8; 32]) -> String {
-    use aes_gcm::{
-        aead::{Aead, KeyInit},
-        Aes256Gcm, Nonce,
-    };
-    let nonce_bytes = rand::random::<[u8; 12]>();
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    let cipher = Aes256Gcm::new_from_slice(key).expect("cipher init failed");
-    let ciphertext = cipher
-        .encrypt(nonce, data.as_bytes())
-        .expect("encryption failed");
-    let mut result = Vec::with_capacity(12 + ciphertext.len());
-    result.extend_from_slice(&nonce_bytes);
-    result.extend_from_slice(&ciphertext);
-    hex::encode(result)
-}
+use crate::crypto::{derive_key, encrypt};
 
 fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str, shellcode: bool) {
     let dir = Path::new(crate_dir);
@@ -174,8 +145,8 @@ fn build(callback: &str, crate_dir: &str, target: &str, output_name: &str, shell
     }
 
     let secret = hex::encode(rand::random::<[u8; 32]>());
-    let key = derive_key_sha256(secret.as_bytes(), "callback-salt");
-    let encrypted_callback = encrypt_aes_gcm(callback, &key);
+    let key = derive_key(secret.as_bytes(), "callback-salt");
+    let encrypted_callback = encrypt(callback, &key);
 
     // Choisir le profil de compilation
     let profile = if shellcode {
